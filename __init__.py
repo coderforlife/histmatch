@@ -132,17 +132,19 @@ def __ehe_calc_info_rand(im):
 
 def __ehe_sort_pixels(values, shape, mask=None, print_info=False):
     """
-    Uses the values (pixels with extra data) to sortall of the pixels.
+    Uses the values (pixels with extra data) to sort all of the pixels.
     Returns the indices of the sorted values.
     """
     from numpy import lexsort
 
     ##### Assign strict ordering #####
     if values.shape == shape:
+        # Single value per pixel
         values = values.ravel()
         sort_pass1 = values.argsort()
         idx = sort_pass1.argsort()
     else:
+        # Tuple of values per pixel
         assert values.shape[:len(shape)] == shape
         values = values.reshape((-1, values.shape[-1]))
         sort_pass1 = lexsort(values.T, 0)
@@ -170,6 +172,7 @@ def __ehe_calc_transform(idx, h_dst, dt, n):
     Create the transform that is the size of the image but with sorted histogram values. Since
     there could be fractional amounts, make sure they are added up and put somewhere.
     """
+    # pylint: disable=invalid-name
     from numpy import floor, intp, empty, repeat, linspace
     from .util import get_dtype_min_max
     H_whole = floor(h_dst).astype(intp, copy=False)

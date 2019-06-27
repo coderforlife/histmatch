@@ -72,7 +72,7 @@ def histeq_trans(h_src, h_dst, dt):
 
     if nbins_dst < 2 or nbins_src < 2: raise ValueError('Invalid histograms')
 
-    xx = vstack((h_src, h_src))
+    xx = vstack((h_src, h_src)) # pylint: disable=invalid-name
     xx[0, -1], xx[1, 0] = 0.0, 0.0
     tol = tile(xx.min(0)/2.0, (nbins_dst, 1))
     err = tile(h_dst_cdf, (nbins_src, 1)).T - tile(h_src_cdf, (nbins_dst, 1)) + tol
