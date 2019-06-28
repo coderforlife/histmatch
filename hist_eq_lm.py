@@ -11,13 +11,18 @@ def calc_info(im, order=6):
     Assign strict ordering to image pixels. Outputs an array that has the same size as the input.
     Its element entries correspond to the order of the gray level pixel in that position.
 
-    This implements the method by Coltuc et al which takes increasing uniform filter sizes to find
-    the local means. It takes an argument for the order (called k in the paper) which must be above
-    2 and defaults to 6.
+    This implements the method by Coltuc et al [2,3] which takes increasing uniform filter sizes to
+    find the local means. It takes an argument for the order (called k in the paper) which must be
+    at least 2 and defaults to 6.
+
+    The idea of using local neighbors was originally proposed in [1] and if order=2 is used on 2D
+    images this reproduces that concept.
 
     REFERENCES:
-      1. Coltuc D. and Bolon P., 1999, "Strict ordering on discrete images and applications"
-      2. Coltuc D., Bolon P. and Chassery J-M., 2006, "Exact histogram specification", IEEE
+      1. Hall EL, Feb 1974, "Almost uniform distributions for computer image enhancement", IEEE
+         Transcations on Computers 23(2):207–208
+      1. Coltuc D and Bolon P, 1999, "Strict ordering on discrete images and applications"
+      2. Coltuc D, Bolon P and Chassery J-M, 2006, "Exact histogram specification", IEEE
          Transcations on Image Processing 15(5):1143-1152
     """
     # supports 2D and 3D, isotropic only

@@ -27,26 +27,26 @@ def histeq_exact(im, h_dst=256, mask=None, print_info=False, method='VA', **kwar
     currently no way to specify the source histogram or to calculate the transform to apply to
     different images. See histeq for the details of the arguments h_dst and mask.
 
-    This method takes significantly more time than the approximate ("standard") version. See below
-    for more details.
+    This method takes significantly more time than the approximate ("standard" or "classical")
+    version.
 
-    Internally this uses either the random values, local mean ordering (LM) by Coltuc, Bolon and
-    Chassery, the variational approach (VA) of Nikolova, Wen and Chan, or the wavelet approach (WA)
-    by Wan and Shi to create the strict ordering of pixels. The method defaults to 'VA' which is a
-    bit slower than 'LM' for 8-bit images but faster for other types. Also it is more accurate in
-    general.
+    Internally this uses one of the following methods to create the strict ordering of pixels. The
+    method defaults to 'VA' which is a bit slower than 'LM' for 8-bit images but faster for other
+    types. Also it is more accurate in general.
 
-    ARBITRARY/QHS:
+    ARBITRARY: [1,4]
         Simpliest approach. All ties are broken in an arbitrary but consistent manner. This method
-        is dubbed "Quick Histogram Specification" (QHS) in [5]. Useful for establishing a baseline
-        on time and pixel ordering failure rate for using any strict ordering method.
+        is dubbed "Sort-Matching" in [1] and "Quick Histogram Specification" (QHS) in [4]. Useful
+        for establishing a baseline on time and pixel ordering failure rate for using any strict
+        ordering method. Inherently supports 3D and/or anisotropic data.
 
-    RAND:
-        Almost the simpliest approach. All ties in the ordering are broken randomly. Unlike
-        arbitrary/qhs, this will not produce consistent results. Additionally, unlike arbitrary/qhs,
-        this will have an extremely low pixel failure rate.
+    RAND: [2]
+        Very simple approach. All ties in the ordering are broken randomly. Like arbitrary this
+        is extremely fast and introduces noise into the data. Unlike arbitrary, this will not
+        produce consistent results. Additionally, unlike arbitrary, this will have an extremely
+        low pixel failure rate. Inherently supports 3D and/or anisotropic data.
 
-    LM:
+    LM: Local Means by Coltuc, Bolon and Chassery [3]
         This uses the gray levels of expanding mean filters to distinguish between same-valued
         pixels. Accepts a `order` argument which has a default of 6 that controls how far away
         pixels are used to help distinguish pixels from each other. An order of 1 would be using
@@ -54,26 +54,34 @@ def histeq_exact(im, h_dst=256, mask=None, print_info=False, method='VA', **kwar
         8-bit images which take about twice the memory and 8x the time from standard histeq. Other
         image types which can take 7x the memory and 40x the time.
 
-    VA:
-        This attempts to reconstruct the original real-valued version of the image and thus is a
-        continuous-valued version of the image which could be strictly ordered. Accepts a `niters`
-        argument that specifies how many minimization iterations to perform to make sure the real-
-        valued image is faithly reproduced. The default is 5. If takes about twice the memory and
-        10x the time from standard histeq regardless of type.
+        Method has been adapted to support 3D data. Does not support anisotropic data.
 
-    WA:
+    WA: Wavelet Approach by Wan and Shi [4]
         ...
 
+        Method has been adapted to support 3D data. Does not support anisotropic data.
+
+    VA: Variational Approach by Nikolova, Wen and Chan [5]
+        This attempts to reconstruct the original real-valued version of the image and thus is a
+        continuous-valued version of the image which can be strictly ordered. This has several
+        parameters including niters, beta, alpha_1, alpha_2, and gamma to control how the
+        real-valued version is computed. See hist_eq_va.calc_info for more information.
+
+        Method has been adapted to support 3D and/or anisotropic data. Use gamma parameter to
+        control for anisotropicity.
+
     REFERENCES:
-      1. Coltuc D and Bolon P, 1999, "Strict ordering on discrete images and applications"
-      2. Coltuc D, Bolon P and Chassery J-M, 2006, "Exact histogram specification", IEEE
-         Trans. on Image Processing 15(5):1143-1152
-      3. Nikolova M, Wen Y-W, and Chan R, 2013, "Exact histogram specification for digital images
-         using a variational approach", J of Mathematical Imaging and Vision, 46(3):309-325
-      4. Nikolova M and Steidl G, 2014, "Fast ordering algorithm for exact histogram specification",
-         IEEE Trans. on Image Processing, 23(12):5274-5283
-      5. Wan Y and Shi D, 2007, "Joint exact histogram specification and image enhancement through
-         the wavelet transform", IEEE Trans. on Image Processing, 16(9):2245-2250.
+      1. Rolland JP, Vo V, Bloss B, and Abbey CK, 2000, "Fast algorithm for histogram
+         matching applications to texture synthesis", Journal of Electronic Imaging 9(1):39–45.
+      2. Rosenfeld A and Kak A, 1982, "Digital Picture Processing"
+      3. Coltuc D, Bolon P and Chassery J-M, 2006, "Exact histogram specification", IEEE
+         Transcations on Image Processing 15(5):1143-1152.
+      4. Wan Y and Shi D, 2007, "Joint exact histogram specification and image enhancement through
+         the wavelet transform", IEEE Transcations on Image Processing, 16(9):2245-2250.
+      5. Nikolova M and Steidl G, 2014, "Fast ordering algorithm for exact histogram specification",
+         IEEE Transcations on Image Processing, 23(12):5274-5283.
+
+    Additional references for each are available with their respective calc_info functions.
     """
     from numbers import Integral
     from numpy import tile
@@ -109,7 +117,7 @@ def __ehe_calc_info(im, method, **kwargs):
     with an extra dimension giving a 'tuple' of data for each pixel.
     """
     method = method.lower()
-    if method in ('arbitrary', 'qhs', None):
+    if method in ('arbitrary', None):
         calc_info = lambda x: x
     elif method in ('rand', 'random'):
         calc_info = __ehe_calc_info_rand
@@ -124,7 +132,12 @@ def __ehe_calc_info(im, method, **kwargs):
     return calc_info(im, **kwargs)
 
 def __ehe_calc_info_rand(im):
-    """Gets a pixel order where ties are broken randomly."""
+    """
+    Gets a pixel order where ties are broken randomly. As stated in [1] this will introduce noise.
+
+    REFERENCES
+      1. Rosenfeld A and Kak A, 1982, "Digital Picture Processing"
+    """
     from numpy.random import random
     if im.dtype.kind in 'iub':
         im = im + random(im.shape) - 0.5
