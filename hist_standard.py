@@ -1,8 +1,8 @@
 """
-Implements standard histogram equalization / matching.
+Implements classical histogram equalization / matching.
 """
 
-from numpy import dtype, sqrt, spacing
+from numpy import dtype
 
 from .util import check_image_mask_single_channel, get_dtype_max, get_dtype_min
 
@@ -22,10 +22,9 @@ def histeq(im, h_dst=64, h_src=None, mask=None):
     Supports integral and floating-point (from 0.0 to 1.0) image data types. To do something similar
     with bool/logical, use convert.bw. The h_dst and h_src must have at least 2 bins.
 
-    The performs an approximate histogram equalization. This is the most "standard" technique used.
-    An exact histogram equalization is available with histeq_exact, however it takes substantially
-    more memory and time, and cannot be given the source histogram or split into two functions
-    (thus it cannot be easily parallelized).
+    The performs an approximate histogram equalization. This is the most common technique used.
+    This is faster and less memory intensive than exact histogram equalization and can be given the
+    source histogram or split into two functions (thus it cannot be easily parallelized).
     """
     im, mask = check_image_mask_single_channel(im, mask)
     if mask is None:
@@ -57,6 +56,7 @@ def histeq_trans(h_src, h_dst, dt):
     """
     from numbers import Integral
     from numpy import tile, vstack
+    from .util import EPS_SQRT
 
     dt = dtype(dt)
     if dt.base != dt or dt.kind not in 'iuf': raise ValueError("Unsupported data-type")
@@ -76,7 +76,7 @@ def histeq_trans(h_src, h_dst, dt):
     xx[0, -1], xx[1, 0] = 0.0, 0.0
     tol = tile(xx.min(0)/2.0, (nbins_dst, 1))
     err = tile(h_dst_cdf, (nbins_src, 1)).T - tile(h_src_cdf, (nbins_dst, 1)) + tol
-    err[err < -EPS] = 1.0
+    err[err < -EPS_SQRT] = 1.0
     transform = err.argmin(0)*(get_dtype_max(dt)/(nbins_dst-1.0))
     transform = transform.round(out=transform).astype(dt, copy=False)
     return transform
@@ -110,8 +110,6 @@ def __histeq_apply(im, transform):
         # scale the indices
         idx = (im*(float(len(transform)-1)/nlevels)).round(out=empty(im.shape, dtype=intp))
     return __restore_signed(transform.take(idx), orig_dt)
-
-EPS = sqrt(spacing(1))
 
 def __as_unsigned(im):
     """
