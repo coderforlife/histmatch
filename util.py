@@ -2,7 +2,11 @@
 Basic utilities for working with images.
 """
 
-from numpy import sctypes, bool_
+from functools import lru_cache
+from numpy import dtype, sctypes, bool_, spacing, sqrt
+
+EPS = spacing(1)
+EPS_SQRT = sqrt(EPS)
 
 BIT_TYPES = [bool_, bool] # bool8?
 INT_TYPES = sctypes['int'] + [int]
@@ -49,7 +53,6 @@ def check_image_mask_single_channel(im, mask):
 ##### Min/Max for data types #####
 def get_dtype_min_max(dt):
     """Gets the min and max value a dtype can take"""
-    from numpy import dtype
     if not hasattr(get_dtype_min_max, 'mn_mx'):
         from numpy import iinfo
         mn_mx = {t:(iinfo(t).min, iinfo(t).max) for t in INT_TYPES + UINT_TYPES}
@@ -76,3 +79,101 @@ def get_im_min_max(im):
         return get_dtype_min_max(dt)
     mn, mx = im.min(), im.max()
     return (mn, mx) if mn < 0.0 or mx > 1.0 else get_dtype_min_max(dt)
+
+
+##### Data Type Conversions #####
+def as_unsigned(im):
+    """
+    If the given image is a signed integer image then it is converted to an unsigned image while
+    keeping the order of values correct (by moving min to 0).
+    """
+    if im.dtype.kind == 'i':
+        dt = im.dtype
+        im = im.view(dtype(dt.byteorder+'u'+str(dt.itemsize))) - get_dtype_min(dt)
+    return im
+
+def as_float(im):
+    """
+    If the given image is integral then it is converted to float64. Unsigned images will end up in
+    the range [0.0, 1.0] while signed images will end up in the range [-1.0, 1.0). For int64 images
+    this may result in a loss of precision.
+    """
+    if im.dtype.kind == 'i':
+        return im / get_dtype_min(im.dtype)
+    if im.dtype.kind == 'bu':
+        return im / get_dtype_max(im.dtype)
+    return im.astype(float, copy=False)
+
+
+##### Other Helpers #####
+@lru_cache(maxsize=None)
+def get_diff_slices(ndim):
+    """
+    Gets a list of pairs of slices to use to get all the neighbor differences for the given number
+    of dimensions.
+    """
+    from itertools import product
+    slices = (slice(1, None), slice(None, None), slice(None, -1))
+    out = []
+    for item in product((0, 1, 2), repeat=ndim):
+        if all(x == 1 for x in item): continue
+        item_inv = tuple(slices[2-x] for x in item)
+        item = tuple(slices[x] for x in item)
+        if (item_inv, item) not in out:
+            out.append((item, item_inv))
+    return out
+
+@lru_cache(maxsize=None)
+def log2i(val):
+    """Gets the log base 2 of an integer, rounded up to an integer."""
+    return val.bit_length() - is_power_of_2(val)
+
+def is_power_of_2(val):
+    """Returns True if an integer is a power of 2. Only works for x > 0."""
+    return not val & (val-1)
+
+
+##### Correlate Function #####
+def correlate(im, weights, output=None, mode='reflect', cval=0.0):
+    """
+    Improved version of scipy.ndimage.filters.correlate that checks if a multidimensional filter can
+    be broken into several 1D filters and then performs several 1D correlations instead of an nD
+    correlation which is much faster.
+
+    Additionally it supports the following special weights:
+       if weights is a tuple of 1D vectors it treats it as already decomposed
+       if weights is a 1D ndarray it is used along every axis
+
+    Does not support the origin argument of scipy.ndimage.correlate. The mode argument does not
+    support different values for each axis.
+    """
+    from scipy.ndimage.filters import correlate, correlate1d # pylint: disable=redefined-outer-name
+    from scipy.ndimage._ni_support import _get_output
+    output = _get_output(output, im)
+    if isinstance(weights, tuple):
+        if len(weights) != im.ndim: raise ValueError('len(weights) != im.ndim')
+        for axis, axis_weights in enumerate(weights):
+            correlate1d(im, axis_weights, axis, output, mode, cval)
+            im = output
+        return output
+    if weights.ndim == 1:
+        for axis in range(im.ndim):
+            correlate1d(im, weights, axis, output, mode, cval)
+            im = output
+        return output
+    # TODO: decompose
+    #if any(weights.shape == 1):
+    #    ...
+    return correlate(im, weights, output, mode, cval)
+
+def __decompose_2d(kernel): # [h1,h2]
+    """
+    Decompose a 2D kernel into 2 1D kernels if possible. Returns None, None otherwise.
+    """
+    # NOTE: this always returns float arrays and may introduce negative signs and other quirks
+    # pylint: disable=invalid-name
+    from numpy.linalg import svd
+    u, s, vh = svd(kernel)
+    if sum(s > max(kernel.shape)*EPS*s.max()) != 1: return None, None
+    s = sqrt(s[0])
+    return u[:, 0]*s, vh[0, :]*s
