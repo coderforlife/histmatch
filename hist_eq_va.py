@@ -46,8 +46,8 @@ del SQRT2I, SQRT3I
 
 def calc_info(im, niters=5, beta=0.1, alpha_1=0.05, alpha_2=None, gamma=None):
     """
-    Assign strict ordering to image pixels. Outputs an array that has the same size as the input.
-    Its element entries correspond to the order of the gray level pixel in that position.
+    Assign strict ordering to image pixels. The returned value is the same shape as the image but
+    with values for each pixel that can be used for strict ordering.
 
     This implements the method by Nikolova et al which attempts to reconstruct the original real-
     valued version of the image using a very fast minimization method. It takes an argument for the
@@ -69,6 +69,8 @@ def calc_info(im, niters=5, beta=0.1, alpha_1=0.05, alpha_2=None, gamma=None):
     can be used to help calculate the parameter values based on the image, connectivity, and other
     values.
 
+    Their method has been adapted to work in 3D, including anisotropic data by adjusting gamma.
+
     The value of gamma determines the connectivity. It defaults to CONNECTIVITY_N4 for 2D images and
     CONNECTIVITY3_N6 for 3D images.
 
@@ -81,10 +83,7 @@ def calc_info(im, niters=5, beta=0.1, alpha_1=0.05, alpha_2=None, gamma=None):
         IEEE Trans. on Image Processing, 23(12):5274-5283
     """
     from numpy import abs #pylint: disable=redefined-builtin
-
-    # supports 2D and 3D, gamma can be used to adjust anisotropic-ness
-    # returns single value per pixel
-    # this does not use pixels outside of the image
+    # this does not use pixels outside of the image at all
 
     # NOTE: This does not use the *_theta_* functions but instead has it solved out. If those
     # functions are changed this function will also need to be updated.

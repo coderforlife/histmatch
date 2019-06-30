@@ -4,7 +4,7 @@ Histogram equalization / matching techniques.
 
 from .util import check_image_mask_single_channel
 
-from .hist_standard import histeq, histeq_trans, histeq_apply
+from .classical import histeq, histeq_trans, histeq_apply
 
 # numpy >= v1.8
 
@@ -15,6 +15,7 @@ def imhist(im, nbins=256, mask=None):
     return __imhist(im, nbins)
 
 def __imhist(im, nbins):
+    """Core of imhist with no checks or handling of mask."""
     from scipy.ndimage import histogram
     from .util import get_im_min_max
     mn, mx = get_im_min_max(im)
@@ -23,11 +24,11 @@ def __imhist(im, nbins):
 def histeq_exact(im, h_dst=256, mask=None, print_info=False, method='VA', **kwargs):
     """
     Like histeq except the histogram of the output image is exactly as given in h_dst. This is
-    acomplished by strictly ordering all pixels based on other properties of the image. There is
+    accomplished by strictly ordering all pixels based on other properties of the image. There is
     currently no way to specify the source histogram or to calculate the transform to apply to
     different images. See histeq for the details of the arguments h_dst and mask.
 
-    This method takes significantly more time than the approximate ("standard" or "classical")
+    This method takes significantly more time than the approximate ("classical")
     version.
 
     Internally this uses one of the following methods to create the strict ordering of pixels. The
@@ -35,7 +36,7 @@ def histeq_exact(im, h_dst=256, mask=None, print_info=False, method='VA', **kwar
     types. Also it is more accurate in general.
 
     ARBITRARY: [1,4]
-        Simpliest approach. All ties are broken in an arbitrary but consistent manner. This method
+        Simplest approach. All ties are broken in an arbitrary but consistent manner. This method
         is dubbed "Sort-Matching" in [1] and "Quick Histogram Specification" (QHS) in [4]. Useful
         for establishing a baseline on time and pixel ordering failure rate for using any strict
         ordering method. Inherently supports 3D and/or anisotropic data.
@@ -51,7 +52,7 @@ def histeq_exact(im, h_dst=256, mask=None, print_info=False, method='VA', **kwar
         pixels. Accepts a `order` argument which has a default of 6 that controls how far away
         pixels are used to help distinguish pixels from each other. An order of 1 would be using
         only the pixel itself and no neighbors (but this isn't allowed). It has been optimized for
-        8-bit images which take about twice the memory and 8x the time from standard histeq. Other
+        8-bit images which take about twice the memory and 8x the time from classical histeq. Other
         image types which can take 7x the memory and 40x the time.
 
         Method has been adapted to support 3D data. Does not support anisotropic data.
@@ -120,7 +121,7 @@ def __ehe_calc_info(im, method, **kwargs):
     if method in ('arbitrary', None):
         calc_info = lambda x: x
     elif method in ('rand', 'random'):
-        calc_info = __ehe_calc_info_rand
+        from .hist_eq_basic import calc_info_rand as calc_info
     elif method == 'lm':
         from .hist_eq_lm import calc_info
     elif method == 'va':
@@ -130,18 +131,6 @@ def __ehe_calc_info(im, method, **kwargs):
     else:
         raise ValueError('method')
     return calc_info(im, **kwargs)
-
-def __ehe_calc_info_rand(im):
-    """
-    Gets a pixel order where ties are broken randomly. As stated in [1] this will introduce noise.
-
-    REFERENCES
-      1. Rosenfeld A and Kak A, 1982, "Digital Picture Processing"
-    """
-    from numpy.random import random
-    if im.dtype.kind in 'iub':
-        im = im + random(im.shape) - 0.5
-    return im
 
 def __ehe_sort_pixels(values, shape, mask=None, print_info=False):
     """

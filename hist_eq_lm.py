@@ -3,17 +3,26 @@ Implements local means strict ordering for use with exact histogram equalization
 """
 
 import functools
-from numpy import float64, int64, ceil, sqrt, log2
+from numpy import uint64, ceil, sqrt, log2
 from numpy import empty, unique, ogrid
 
 def calc_info(im, order=6):
     """
-    Assign strict ordering to image pixels. Outputs an array that has the same size as the input.
-    Its element entries correspond to the order of the gray level pixel in that position.
+    Assign strict ordering to image pixels. The returned value is the same shape as the image but
+    with values for each pixel that can be used for strict ordering. For some types of images or
+    large orders this will return a stack of image values for lex-sorting.
 
     This implements the method by Coltuc et al [2,3] which takes increasing uniform filter sizes to
     find the local means. It takes an argument for the order (called k in the paper) which must be
     at least 2 and defaults to 6.
+
+    Their method has been adapted to work in 3D, however only isotropic data is supported. The order
+    parameter is based on distance so an order of 6 will include some pixels for 2D images (distance
+    of 2*sqrt(2)) that are not included in 3D images (order 6 only goes up to sqrt(6) away).
+
+    Since means have a constant factor in them and that won't change the relative order, it is
+    removed from the computations and the returned values do not include them. The results are
+    compacted as much as possible.
 
     The idea of using local neighbors was originally proposed in [1] and if order=2 is used on 2D
     images this reproduces that concept.
@@ -25,19 +34,13 @@ def calc_info(im, order=6):
       2. Coltuc D, Bolon P and Chassery J-M, 2006, "Exact histogram specification", IEEE
          Transcations on Image Processing 15(5):1143-1152
     """
-    # supports 2D and 3D, isotropic only
-    # returns single value per pixel in most cases, but can return stack
-    # this uses scipy's 'reflect' mode [duplicated edge]
+    # this uses scipy's 'reflect' mode (duplicated edge)
 
-    from scipy.ndimage.filters import correlate
+    from .util import as_unsigned, correlate
 
     # Deal with arguments
     if order < 2 or order > 6: raise ValueError('Invalid order')
-    if im.dtype.kind == 'i':
-        from numpy import dtype
-        from .util import get_dtype_min
-        dt = im.dtype
-        im = im.view(dtype(dt.byteorder+'u'+str(dt.itemsize))) - get_dtype_min(dt)
+    im = as_unsigned(im)
     dt = im.dtype
 
     # Get the filters for this setup
@@ -45,17 +48,18 @@ def calc_info(im, order=6):
 
     if len(filters) == 1 and includes_order_one:
         # Single convolution
-        return correlate(im.astype(int64), filters[0])
+        return correlate(im.astype(uint64, copy=False), filters[0])
 
-    # Convolve filters with the image and lexsort
-    out = empty(im.shape+(len(filters)+(not includes_order_one),), float64)
+    # Convolve filters with the image and stack
+    im = im.astype(float if im.dtype.kind == 'f' else uint64, copy=False)
+    out = empty(im.shape+(len(filters)+(not includes_order_one),), im.dtype)
     for i, fltr in enumerate(filters):
         correlate(im, fltr, out[..., i])
     if not includes_order_one:
-        out[..., -1] = im.astype(out.dtype)
+        out[..., -1] = im
     return out
 
-@functools.lru_cache()
+@functools.lru_cache(maxsize=None)
 def __get_filters(dt, order, ndim):
     """
     Get the local-means filters for an image data type and order. The returned sequence is has the
@@ -84,11 +88,11 @@ def __get_filters(dt, order, ndim):
     out = []
     # Don't start a new filter for just the central pixel (that is why it is order > 0)
     while order > 0:
-        fltr = (raw == vals[order]).astype(int64)
+        fltr = (raw == vals[order]).astype(uint64)
         used_bits = nbits + extra_bits[order]
         order -= 1
         # Add any additional orders possible to this filter
-        while order >= 0 and used_bits + nbits + extra_bits[order] <= 63:
+        while order >= 0 and used_bits + nbits + extra_bits[order] <= 64:
             fltr[raw == vals[order]] = 1 << used_bits
             used_bits += nbits + extra_bits[order]
             order -= 1
