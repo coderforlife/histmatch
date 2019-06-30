@@ -36,7 +36,7 @@ def calc_info(im, order=6):
     """
     # this uses scipy's 'reflect' mode (duplicated edge)
 
-    from .util import as_unsigned, correlate
+    from ..util import as_unsigned, correlate
 
     # Deal with arguments
     if order < 2 or order > 6: raise ValueError('Invalid order')
