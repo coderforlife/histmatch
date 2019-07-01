@@ -12,7 +12,7 @@ from ..util import as_unsigned, log2i
 def calc_info_rand(im):
     """
     Gets a pixel order where ties are broken randomly. As stated in [1] this will introduce noise.
-    Note that for continous images (i.e. float) no randomness is added.
+    Note that for continuous images (i.e. float) no randomness is added.
 
     REFERENCES
       1. Rosenfeld A and Kak A, 1982, "Digital Picture Processing"
@@ -93,6 +93,7 @@ def calc_info_neighborhood_voting(im, size=3, invert=False):
       1. Eramian M and Mould D, 2005, "Histogram Equalization using Neighborhood Metrics",
          Proceedings of the Second Canadian Conference on Computer and Robot Vision.
     """
+    # this uses scipy's 'reflect' mode (duplicated edge) ([2] says this should be constant-0)
     from numpy import zeros
 
     # Deal with arguments
