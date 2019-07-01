@@ -345,7 +345,7 @@ def __compute_v_diffs_3(im, gamma):
 
 def compute_c(im, beta, alpha_1, alpha_2=None, gamma=None):
     """
-    Calcuates c = phi'(z, alpha_2)    [1 eq 15 & 22; 2 eq 14]
+    Computes c = phi'(z, alpha_2)    [1 eq 15 & 22; 2 eq 14]
     where:
         z = v(im, gamma) - 2*b(beta*eta, alpha_1) > 0
         v(im, gamma) is the largest minimal neighbor differences in the image    [1 eq 14]
