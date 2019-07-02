@@ -20,9 +20,8 @@ def calc_info(im, order=6):
     parameter is based on distance so an order of 6 will include some pixels for 2D images (distance
     of 2*sqrt(2)) that are not included in 3D images (order 6 only goes up to sqrt(6) away).
 
-    Since means have a constant factor in them and that won't change the relative order, it is
-    removed from the computations and the returned values do not include them. The results are
-    compacted as much as possible.
+    This uses the psi functions from [3] so they don't include redundany information or scaling
+    factors as those won't change the relative order. The results are compacted as much as possible.
 
     The idea of using local neighbors was originally proposed in [1] and if order=2 is used on 2D
     images this reproduces that concept.
@@ -30,8 +29,8 @@ def calc_info(im, order=6):
     REFERENCES:
       1. Hall EL, Feb 1974, "Almost uniform distributions for computer image enhancement", IEEE
          Transcations on Computers 23(2):207–208
-      1. Coltuc D and Bolon P, 1999, "Strict ordering on discrete images and applications"
-      2. Coltuc D, Bolon P and Chassery J-M, 2006, "Exact histogram specification", IEEE
+      2. Coltuc D and Bolon P, 1999, "Strict ordering on discrete images and applications"
+      3. Coltuc D, Bolon P and Chassery J-M, 2006, "Exact histogram specification", IEEE
          Transcations on Image Processing 15(5):1143-1152
     """
     # this uses scipy's 'reflect' mode (duplicated edge)
@@ -39,7 +38,7 @@ def calc_info(im, order=6):
     from ..util import as_unsigned, correlate
 
     # Deal with arguments
-    if order < 2 or order > 6: raise ValueError('Invalid order')
+    if order < 2: raise ValueError('order')
     im = as_unsigned(im)
     dt = im.dtype
 
