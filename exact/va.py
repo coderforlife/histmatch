@@ -157,6 +157,7 @@ def __calculate_d_Phi(u, t, G_info, alpha_2, d_phi, denom):
     alpha_2 is a constant scalar
     d_phi and denom are temporaries that are the same shape as u and t
     """
+    from numpy import abs #pylint: disable=redefined-builtin
     t.fill(0)
     for (gamma, slc_pos, slc_neg) in G_info:
         d_phi_x, denom_x = d_phi[slc_neg], denom[slc_neg]
