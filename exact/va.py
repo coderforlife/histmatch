@@ -2,6 +2,7 @@
 Implements variation approach strict ordering for use with exact histogram equalization.
 """
 
+from collections.abc import Sequence
 from functools import lru_cache
 
 from numpy import asarray, empty, sqrt, log, divide, subtract, nonzero
@@ -44,7 +45,7 @@ del SQRT2I, SQRT3I
 
 # pylint: disable=invalid-name
 
-def calc_info(im, niters=5, beta=0.1, alpha_1=0.05, alpha_2=None, gamma=None):
+def calc_info(im, niters=5, beta=0.1, alpha=0.05, gamma=None):
     """
     Assign strict ordering to image pixels. The returned value is the same shape as the image but
     with values for each pixel that can be used for strict ordering.
@@ -62,12 +63,14 @@ def calc_info(im, niters=5, beta=0.1, alpha_1=0.05, alpha_2=None, gamma=None):
         xi(t)      = (theta')^(-1) (t) = alpha * y / (1 - |y|)
         xi'(t)     = alpha / (1 - |y|)^2
 
-    beta and alpha_1 default to 0.1 and 0.05 respectively as chosen in [3]. alpha_2 defaults to
-    alpha_1. See the 2013 paper, section III, for choosing the parameter values. In general keeping
-    alpha_1 and alpha_2 small is important. The values are dependent on eta (the connectivity) and
-    the image contents in attempt to make c in (1-1e-5, 1). Various other functions in this module
-    can be used to help calculate the parameter values based on the image, connectivity, and other
-    values.
+    beta, alpha_1, and alpha_2 default to 0.1, 0.05, 0.05 respectively as chosen in [3]. See the
+    2013 paper, section III, for choosing the parameter values. In general keeping alphas small is
+    important. The values are dependent on eta (the connectivity) and the image contents in attempt
+    to make c in (1-1e-5, 1). Various other functions in this module can be used to help calculate
+    the parameter values based on the image, connectivity, and other values.
+
+    If only one alpha is provided, it is used for both alpha_1 and alpha_2. If a sequence is given
+    it is used for both of the alphas.
 
     Their method has been adapted to work in 3D, including anisotropic data by adjusting gamma.
 
@@ -93,10 +96,8 @@ def calc_info(im, niters=5, beta=0.1, alpha_1=0.05, alpha_2=None, gamma=None):
     eta = gamma.sum()
     if niters <= 0: raise ValueError('niters') # niters is R in [3]
     if beta <= 0 or beta >= 1/eta: raise ValueError('beta')
-    if alpha_1 <= 0: raise ValueError('alpha_1')
-    if alpha_2 is None:
-        alpha_2 = alpha_1
-    elif alpha_2 <= 0: raise ValueError('alpha_2')
+    alpha_1, alpha_2 = alpha if isinstance(alpha, Sequence) else (alpha, alpha)
+    if alpha_1 <= 0 or alpha_2 <= 0: raise ValueError('alpha')
     if gamma.ndim != im.ndim: raise ValueError('gamma and im must have the same dimension')
 
     # Allocate temporaries
@@ -344,7 +345,7 @@ def __compute_v_diffs_3(im, gamma):
     for i, (row, col, depth) in enumerate(zip(*gamma_nz_pos)):
         subtract(internal, im[row:h+row-2, col:w+col-2, depth:d+depth-2], diffs[i])
 
-def compute_c(im, beta, alpha_1, alpha_2=None, gamma=None):
+def compute_c(im, beta, alpha, gamma=None):
     """
     Computes c = phi'(z, alpha_2)    [1 eq 15 & 22; 2 eq 14]
     where:
@@ -355,7 +356,7 @@ def compute_c(im, beta, alpha_1, alpha_2=None, gamma=None):
             for 2D images and CONNECTIVITY3_N6 for 3D images
         b(y) is the inverse of theta'(t)    [2 eq 12]
             In [1] b(y) = (theta')^(-1)(y*eta)    [1 eq 12]
-        alpha_2 defaults to equal to alpha_1
+        alpha_2 equals alpha_1 if one alpha provided, provide a sequence to have different values
     The c value must be <1.0 but should be very close to 1.0 (between 1.0-1e-5 and 1.0) for a good
     set of parameters for a given image.
 
@@ -369,10 +370,8 @@ def compute_c(im, beta, alpha_1, alpha_2=None, gamma=None):
     gamma = __check_gamma(gamma)
     eta = gamma.sum()
     if beta <= 0 or beta >= 1/eta: raise ValueError('beta')
-    if alpha_1 <= 0: raise ValueError('alpha_1')
-    if alpha_2 is None:
-        alpha_2 = alpha_1
-    elif alpha_2 <= 0: raise ValueError('alpha_2')
+    alpha_1, alpha_2 = alpha if isinstance(alpha, Sequence) else (alpha, alpha)
+    if alpha_1 <= 0 or alpha_2 <= 0: raise ValueError('alpha')
     z = compute_v(im, gamma) - 2*d_theta_inv(beta*eta, alpha_1)
     if z <= 0: raise ValueError('z')
     return d_theta(z, alpha_2)
@@ -396,7 +395,7 @@ def compute_optimal_alpha_1(beta, gamma=CONNECTIVITY_N4, delta=0.5):
     if delta <= 0: raise ValueError('delta')
     return delta * (1 - abs(beta*eta)) / beta*eta
 
-def check_convergence(beta, alpha_1, alpha_2=None, gamma=CONNECTIVITY_N4):
+def check_convergence(beta, alpha, gamma=CONNECTIVITY_N4):
     """
     Check convergence of the fixed point algorithm, the following condition must be true:
         2*eta2*beta*xi'(beta*eta, alpha_1)*theta''(0, alpha_2) < 1    [3 eq 10]
@@ -405,7 +404,7 @@ def check_convergence(beta, alpha_1, alpha_2=None, gamma=CONNECTIVITY_N4):
         eta2 = sum(gamma^2)
         gamma is the neighbor weights, (i.e. a CONNECTIVITY constant), default is CONNECTIVITY_N4
           which is only appropriate for 2D images
-        alpha_2 defaults to equal to alpha_1
+        alpha_2 equals alpha_1 if one alpha provided, provide a sequence to have different values
 
     REFERENCES:
      3. Nikolova M and Steidl G, 2014, "Fast Ordering Algorithm for Exact Histogram Specification"
@@ -414,10 +413,8 @@ def check_convergence(beta, alpha_1, alpha_2=None, gamma=CONNECTIVITY_N4):
     gamma = __check_gamma(gamma)
     eta, eta2 = gamma.sum(), (gamma*gamma).sum()
     if beta <= 0 or beta >= 1/eta: raise ValueError('beta')
-    if alpha_1 <= 0: raise ValueError('alpha_1')
-    if alpha_2 is None:
-        alpha_2 = alpha_1
-    elif alpha_2 <= 0: raise ValueError('alpha_2')
+    alpha_1, alpha_2 = alpha if isinstance(alpha, Sequence) else (alpha, alpha)
+    if alpha_1 <= 0 or alpha_2 <= 0: raise ValueError('alpha')
     return 2*eta2*beta*d_d_theta_inv(beta*eta, alpha_1)*d2_theta(0, alpha_2) < 1
 
 def compute_upper_beta(gamma=CONNECTIVITY_N4, alpha_1_2_ratio=1):
