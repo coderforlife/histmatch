@@ -3,15 +3,17 @@ Implements exact histogram equalization / matching. The underlying methods for e
 ordering are in other files in this module.
 """
 
-def histeq_exact(im, h_dst=256, mask=None, print_info=False, method='VA', **kwargs):
+def histeq_exact(im, h_dst=256, mask=None, return_fails=False, method='VA', **kwargs):
     """
     Like histeq except the histogram of the output image is exactly as given in h_dst. This is
     accomplished by strictly ordering all pixels based on other properties of the image. There is
     currently no way to specify the source histogram or to calculate the transform to apply to
-    different images. See histeq for the details of the arguments h_dst and mask.
+    different images. See histeq for the details of the arguments h_dst and mask. If return_fails
+    parameter is set to True then a second value is returned with the number of non-unique values
+    in the strict ordering. To get a percentage, divide by the number of pixels in the image or
+    the number of Trues in the mask if provided.
 
-    This method takes significantly more time than the approximate ("classical")
-    version.
+    This method takes significantly more time than the approximate ("classical") version.
 
     Internally this uses one of the following methods to create the strict ordering of pixels. The
     method defaults to 'VA' which is a bit slower than 'LM' for 8-bit images but faster for other
@@ -97,7 +99,7 @@ def histeq_exact(im, h_dst=256, mask=None, print_info=False, method='VA', **kwar
     shape, n, dt = im.shape, im.size, im.dtype
     if mask is not None: mask, n = mask.ravel(), mask.sum()
     h_dst = tile(n/h_dst, h_dst) if isinstance(h_dst, Integral) else h_dst.ravel()*(n/h_dst.sum()) #pylint: disable=no-member
-    if len(h_dst) < 2: raise ValueError('Invalid histogram')
+    if len(h_dst) < 2: raise ValueError('h_dst')
 
     ##### Create strict-orderable versions of image #####
     # These are frequently floating-point 'images' and/or images with an extra dimension giving a
@@ -106,7 +108,7 @@ def histeq_exact(im, h_dst=256, mask=None, print_info=False, method='VA', **kwar
     del im
 
     ##### Assign strict ordering #####
-    idx = __sort_pixels(values, shape, mask, print_info)
+    idx, fails = __sort_pixels(values, shape, mask, return_fails)
     del values, mask
 
     ##### Create the transform that is the size of the image but with sorted histogram values #####
@@ -115,7 +117,10 @@ def histeq_exact(im, h_dst=256, mask=None, print_info=False, method='VA', **kwar
     del h_dst
 
     ##### Create the equalized image #####
-    return transform.take(idx).reshape(shape)
+    out = transform.take(idx).reshape(shape)
+
+    # Done
+    return (out, fails) if return_fails else out
 
 def __calc_info(im, method, **kwargs):
     """
@@ -141,33 +146,36 @@ def __calc_info(im, method, **kwargs):
         raise ValueError('method')
     return calc_info(im, **kwargs)
 
-def __sort_pixels(values, shape, mask=None, print_info=False):
+def __sort_pixels(values, shape, mask=None, return_fails=False):
     """
     Uses the values (pixels with extra data) to sort all of the pixels.
-    Returns the indices of the sorted values.
+    Returns the indices of the sorted values and the number of fails (or None if not requested).
     """
-    from numpy import lexsort
-
     ##### Assign strict ordering #####
     if values.shape == shape:
         # Single value per pixel
         values = values.ravel()
         sort_pass1 = values.argsort()
-        idx = sort_pass1.argsort()
     else:
-        # Tuple of values per pixel
+        # Tuple of values per pixel - need lexsort
+        from numpy import lexsort
         assert values.shape[:len(shape)] == shape
         values = values.reshape((-1, values.shape[-1]))
         sort_pass1 = lexsort(values.T, 0)
-        idx = sort_pass1.argsort()
-    if print_info:
-        # TODO: this doesn't take into account the mask
+
+    # Calculate the number of sort failures
+    fails = None
+    if return_fails:
         values_sorted = values[sort_pass1]
-        equals = values_sorted[1:] != values_sorted[:-1]
-        if equals.ndim == 2: equals = equals.any(1)
-        n_unique, n = equals.sum() + 1, idx.size
-        del equals, values_sorted
-        print('duplicates:', (n - n_unique) / n, n - n_unique)
+        not_equals = values_sorted[1:] != values_sorted[:-1]
+        del values_sorted
+        if not_equals.ndim == 2: not_equals = not_equals.any(1) # lexsorted
+        if mask is not None: not_equals = not_equals[mask[:-1]]
+        fails = not_equals.size - not_equals.sum()
+        del not_equals
+
+    # Final sort to establish strict ordering
+    idx = sort_pass1.argsort()
     del sort_pass1
 
     ##### Handle the mask #####
@@ -176,7 +184,7 @@ def __sort_pixels(values, shape, mask=None, print_info=False):
         idx[mask] = idx[mask].argsort().argsort()
 
     # Done
-    return idx
+    return idx, fails
 
 def __calc_transform(idx, h_dst, dt, n):
     """
