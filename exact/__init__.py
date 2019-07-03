@@ -49,23 +49,30 @@ def histeq_exact(im, h_dst=256, mask=None, return_fails=False, method='VA', **kw
 
         Method has been adapted to support 3D data. Does not support anisotropic data.
 
-    LC: Local Contrast by Coltuc, Bolon and Chassery [5]
-        This uses the gray levels of expanding mean filters to distinguish between same-valued
-        pixels. Accepts a `order` argument which has a default of 6 that controls how far away
-        pixels are used to help distinguish pixels from each other. An order of 1 would be using
-        only the pixel itself and no neighbors (but this isn't allowed). It has been optimized for
-        8-bit images which take about twice the memory and 8x the time from classical histeq. Other
-        image types which can take 7x the memory and 40x the time.
+    GL: Gaussian and Lapacian Filtering by Coltuc and Bolon [5]
+        Uses a series of Gaussian and Laplacian of Gaussian (LoG) convolutions with the standard
+        deviation of the kernel increasing to use information from further away in the picture. The
+        default creates 6 additional versions of the image, alternating between Gaussian and LoG
+        with standard deviations of 0.5, 1.0, and 1.5. The absolute value of the LoG is used. The
+        logic behind the alternation is one gives information about local brightness and the other
+        one gives information about the edges.
+
+        Method has been adapted to support 3D data. Does not support anisotropic data.
+
+    LC: Local Contrast by Coltuc and Bolon [5]
+        Uses the difference between the maximum and minimum values of expanding disks to distinguish
+        between same-valued pixels. Accepts a `order` argument which has a default of 6 that
+        controls how far away pixels are used to help distinguish pixels from each other.
 
         Method has been adapted to support 3D data. Does not support anisotropic data.
 
     LM: Local Means by Coltuc, Bolon and Chassery [5,6]
-        This uses the gray levels of expanding mean filters to distinguish between same-valued
-        pixels. Accepts a `order` argument which has a default of 6 that controls how far away
-        pixels are used to help distinguish pixels from each other. An order of 1 would be using
-        only the pixel itself and no neighbors (but this isn't allowed). It has been optimized for
-        8-bit images which take about twice the memory and 8x the time from classical histeq. Other
-        image types which can take 7x the memory and 40x the time.
+        Uses the gray levels of expanding mean filters to distinguish between same-valued pixels.
+        Accepts a `order` argument which has a default of 6 that controls how far away pixels are
+        used to help distinguish pixels from each other. An order of 1 would be using only the pixel
+        itself and no neighbors (but this isn't allowed). It has been optimized for 8-bit images
+        which take about twice the memory and 8x the time from classical histeq. Other image types
+        which can take 7x the memory and 40x the time.
 
         Method has been adapted to support 3D data. Does not support anisotropic data.
 
@@ -147,14 +154,16 @@ def __calc_info(im, method, **kwargs):
         from .basic import calc_info_neighborhood_avg as calc_info
     elif method == 'nv':
         from .basic import calc_info_neighborhood_voting as calc_info
+    elif method == 'gl':
+        from .basic import calc_info_gaussian_laplacian as calc_info
     elif method == 'lc':
         from .basic import calc_info_local_contrast as calc_info
     elif method == 'lm':
         from .lm import calc_info
-    elif method == 'va':
-        from .va import calc_info
     elif method == 'wa':
         from .wa import calc_info
+    elif method == 'va':
+        from .va import calc_info
     else:
         raise ValueError('method')
     return calc_info(im, **kwargs)

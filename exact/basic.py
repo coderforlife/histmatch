@@ -23,18 +23,48 @@ def calc_info_rand(im):
         im = im + random(im.shape) - 0.5
     return im
 
+def calc_info_gaussian_laplacian(im, sigmas=[0.5, 1.0, 1.5]):
+    """
+    Assign strict ordering to image pixels. The returned value is the same shape but with an extra
+    dimension for the results of the additional filters. This stack needs to be lex-sorted.
+
+    This calculates the extra information by taking a series of Gaussian and Laplacian of Gaussian
+    convolutions with the standard deviation of the kernel increasing to use information from
+    further away in the picture. The default settings result in 6 additional versions of the image,
+    alternating between Gaussian and Laplacian of Gaussian with a standard deviation of 0.5, 1.0,
+    and 1.5. The absolute value of the Laplacian of Gaussian results are taken. The logic behind
+    the alternation is one gives information about local brightness and the other one gives
+    information about the edges.
+
+    REFERENCES
+      1. Coltuc D and Bolon P, 1999, "Strict ordering on discrete images and applications"
+    """
+    # this uses scipy's 'reflect' mode (duplicated edge)
+    from numpy import abs # pylint: disable=redefined-builtin
+    from scipy.ndimage import gaussian_filter, laplace
+    from ..util import as_float
+    im = as_float(im)
+    out = empty(im.shape + (2*len(sigmas)+1,))
+    for i, sigma in enumerate(sigmas):
+        gauss = gaussian_filter(im, sigma, output=out[..., 2*i])
+        lap = laplace(gauss, output=out[..., 2*i])
+        abs(lap, lap)
+    out[..., -1] = im
+    return out
+
 def calc_info_local_contrast(im, order=6):
     """
     Assign strict ordering to image pixels. The returned value is the same shape as the image but
     with values for each pixel that can be used for strict ordering. For some types of images or
     large orders this will return a stack of image values for lex-sorting.
 
-    This calculates the extra values by taking the difference between the maximum and minimum of
-    the values within increasing sized disks around the pixel as per equation 6 in [1].
+    This calculates the extra information by taking the difference between the maximum and minimum
+    of the values within increasing sized disks around the pixel as per equation 6 in [1].
 
     REFERENCES
       1. Coltuc D and Bolon P, 1999, "Strict ordering on discrete images and applications"
     """
+    # this uses scipy's 'reflect' mode (duplicated edge) and thus has no effect
     from scipy.ndimage import maximum_filter, minimum_filter
     from ..util import generate_disks
     im = as_unsigned(im)
@@ -51,7 +81,7 @@ def calc_info_local_contrast(im, order=6):
         out[..., -1] = im
         return out
 
-    # Integral images can be compacted or at least become stored in uint64 outputs
+    # Integral images can be compacted or at least stored in uint64 outputs
     bpp = im.dtype.itemsize*8
     dst_type = uint64 if order*bpp >= 64 else get_uint_dtype_fit(order*bpp)
     out = empty(im.shape + ((order*bpp+63)//64,), dst_type)

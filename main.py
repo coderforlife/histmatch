@@ -12,7 +12,8 @@ def main():
     parser = argparse.ArgumentParser(description='Perform histogram equalization on an image')
     parser.add_argument('input', help='input image file')
     parser.add_argument('output', help='output image file')
-    parser.add_argument('method', choices=['classic', 'arbitrary', 'rand', 'lm', 'wa', 'va'],
+    parser.add_argument('method', choices=['classic', 'arbitrary', 'rand', 'na', 'nv', 'gl', 'lc',
+                                           'lm', 'wa', 'va'],
                         help='method of histogram equalization')
 
     args = parser.parse_args()
@@ -22,7 +23,8 @@ def main():
     if args.method == 'classic':
         out = histeq(im, 256)
     else:
-        out = histeq_exact(im, print_info=True, method=args.method)
+        out, fails = histeq_exact(im, return_fails=True, method=args.method)
+        print(fails)
 
     """
     import matplotlib.pylab as plt
