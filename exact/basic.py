@@ -59,7 +59,8 @@ def calc_info_local_contrast(im, order=6):
     large orders this will return a stack of image values for lex-sorting.
 
     This calculates the extra information by taking the difference between the maximum and minimum
-    of the values within increasing sized disks around the pixel as per equation 6 in [1].
+    of the values within increasing sized disks around the pixel as per equation 6 in [1]. The
+    default order is 6.
 
     REFERENCES
       1. Coltuc D and Bolon P, 1999, "Strict ordering on discrete images and applications"
@@ -96,8 +97,6 @@ def calc_info_local_contrast(im, order=6):
         if shift > 64:
             layer += 1
             shift = 0
-
-    print(out.shape, layer)
 
     out[..., -1] |= im << shift
     return out[..., 0] if layer == 0 else out
