@@ -49,7 +49,7 @@ def calc_info_neighborhood_avg(im, size=3, invert=False):
     """
     # this uses scipy's 'reflect' mode (duplicated edge) ([2] says this should be constant-0)
     from numpy import ones, uint32, subtract
-    from ..util import correlate, get_dtype_max
+    from ..util import correlate, get_dtype_max, FLOAT64_NMANT
 
     # Deal with arguments
     if size < 3 or size % 2 != 1: raise ValueError('size')
@@ -59,21 +59,19 @@ def calc_info_neighborhood_avg(im, size=3, invert=False):
     shift = dt.itemsize*8 + log2i(n_neighbors)
     nbits = shift + dt.itemsize*8
 
-    if dt.kind == 'f' or nbits > 63:
+    if dt.kind == 'f' or nbits > FLOAT64_NMANT:
         # No compaction possible
-        dst_dtype = float if dt.kind == 'f' else uint64
-        out = empty(im.shape + (2,), dst_dtype)
-        avg = correlate(im, ones(size, dst_dtype), out[..., 0])
+        out = empty(im.shape + (2,))
+        avg = correlate(im, ones(size), out[..., 0])
         if invert:
             subtract(avg.max() if dt.kind == 'f' else (n_neighbors * get_dtype_max(dt)), avg, avg)
         out[..., 1] = im # the original image is still part of this
     else:
         # Compact the results
-        dst_dtype = uint64 if nbits > 31 else uint32
-        out = correlate(im, ones(size, dst_dtype), empty(im.shape, dst_dtype))
+        out = correlate(im, ones(size), empty(im.shape, uint64 if nbits > 31 else uint32))
         if invert:
             subtract(n_neighbors * get_dtype_max(dt), out, out)
-        out |= im << shift # the original image is still part of this
+        out |= im.astype(out.dtype) << shift # the original image is still part of this
     return out
 
 def calc_info_neighborhood_voting(im, size=3, invert=False):
@@ -106,16 +104,14 @@ def calc_info_neighborhood_voting(im, size=3, invert=False):
 
     if dt.kind == 'f' or nbits > 63:
         # No compaction possible
-        dst_dtype = float if dt.kind == 'f' else uint64
-        out = zeros(im.shape + (2,), dst_dtype)
+        out = zeros(im.shape + (2,), float if dt.kind == 'f' else uint64)
         __count_votes(im, out[..., 0], size, invert)
         out[..., 1] = im # the original image is still part of this
     else:
         # Compact the results
-        dst_dtype = 'u' +str(max(2**log2i(nbits), 8))
-        out = zeros(im.shape, dst_dtype)
+        out = zeros(im.shape, 'u' +str(max(2**log2i(nbits), 8)))
         __count_votes(im, out, size, invert)
-        out |= im << shift # the original image is still part of this
+        out |= im.astype(out.dtype) << shift # the original image is still part of this
 
     return out
 

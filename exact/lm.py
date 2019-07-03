@@ -2,9 +2,10 @@
 Implements local means strict ordering for use with exact histogram equalization.
 """
 
-import functools
+from functools import lru_cache
 from numpy import uint64, ceil, sqrt, log2
 from numpy import empty, unique, ogrid
+from ..util import FLOAT64_NMANT
 
 def calc_info(im, order=6):
     """
@@ -45,20 +46,23 @@ def calc_info(im, order=6):
     # Get the filters for this setup
     filters, includes_order_one = __get_filters(dt, order, im.ndim)
 
-    if len(filters) == 1 and includes_order_one:
+    if len(filters) == 1 and (includes_order_one or FLOAT64_NMANT + dt.itemsize*8 <= 64):
         # Single convolution
-        return correlate(im.astype(uint64, copy=False), filters[0])
+        out = correlate(im, filters[0], empty(im.shape, uint64))
+        if not includes_order_one:
+            out |= im.astype(uint64) << FLOAT64_NMANT
+        return out
 
     # Convolve filters with the image and stack
-    im = im.astype(float if im.dtype.kind == 'f' else uint64, copy=False)
-    out = empty(im.shape+(len(filters)+(not includes_order_one),), im.dtype)
+    im = im.astype(float, copy=False)
+    out = empty(im.shape+(len(filters)+(not includes_order_one),))
     for i, fltr in enumerate(filters):
         correlate(im, fltr, out[..., i])
     if not includes_order_one:
         out[..., -1] = im
     return out
 
-@functools.lru_cache(maxsize=None)
+@lru_cache(maxsize=None)
 def __get_filters(dt, order, ndim):
     """
     Get the local-means filters for an image data type and order. The returned sequence is has the
@@ -87,12 +91,12 @@ def __get_filters(dt, order, ndim):
     out = []
     # Don't start a new filter for just the central pixel (that is why it is order > 0)
     while order > 0:
-        fltr = (raw == vals[order]).astype(uint64)
+        fltr = (raw == vals[order]).astype(float)
         used_bits = nbits + extra_bits[order]
         order -= 1
         # Add any additional orders possible to this filter
-        while order >= 0 and used_bits + nbits + extra_bits[order] <= 64:
-            fltr[raw == vals[order]] = 1 << used_bits
+        while order >= 0 and used_bits + nbits + extra_bits[order] <= FLOAT64_NMANT:
+            fltr[raw == vals[order]] = float(1 << used_bits)
             used_bits += nbits + extra_bits[order]
             order -= 1
         out.append(__trim_zeros(fltr))

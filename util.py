@@ -3,10 +3,11 @@ Basic utilities for working with images.
 """
 
 from functools import lru_cache
-from numpy import dtype, sctypes, bool_, spacing, sqrt
+from numpy import dtype, sctypes, bool_, spacing, sqrt, finfo
 
 EPS = spacing(1)
 EPS_SQRT = sqrt(EPS)
+FLOAT64_NMANT = finfo(float).nmant
 
 BIT_TYPES = [bool_, bool] # bool8?
 INT_TYPES = sctypes['int'] + [int]
@@ -156,6 +157,10 @@ def correlate(im, weights, output=None, mode='reflect', cval=0.0):
 
     Does not support the origin argument of scipy.ndimage.correlate. The mode argument does not
     support different values for each axis.
+
+    NOTE: SciPy always converts the weights to float64 and does all of the math as float64 and thus
+    correletions/convolutions with (u)int64 operations may lose lowest signficant digits since a
+    float64 cannot represent every integer above 2**52.
     """
     from scipy.ndimage.filters import correlate, correlate1d # pylint: disable=redefined-outer-name
     from scipy.ndimage._ni_support import _get_output
@@ -180,7 +185,7 @@ def __decompose_2d(kernel): # [h1,h2]
     """
     Decompose a 2D kernel into 2 1D kernels if possible. Returns None, None otherwise.
     """
-    # NOTE: this always returns float arrays and may introduce negative signs and other quirks
+    # NOTE: this may introduce negative signs and other quirks
     # pylint: disable=invalid-name
     from numpy.linalg import svd
     u, s, vh = svd(kernel)
