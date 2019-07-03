@@ -6,7 +6,8 @@ from collections.abc import Sequence
 
 from numpy import empty
 
-from .util import get_dtype_min_max, check_image_single_channel, check_image_mask_single_channel
+from .util import (get_dtype_min_max, check_image_single_channel, check_image_mask_single_channel,
+                   axes_combinations)
 
 def contrast_per_pixel(im):
     """
@@ -23,8 +24,6 @@ def contrast_per_pixel(im):
      1. Eramian M and Mould D, 2005, "Histogram Equalization using Neighborhood Metrics",
         Proceedings of the Second Canadian Conference on Computer and Robot Vision.
     """
-    # TODO: since I am not using pixels outside the image this will cause problems with the
-    # division at the end assuming every pixel has the same number of neighbors
     from numpy import subtract, abs # pylint: disable=redefined-builtin
     from .util import get_diff_slices
     im = im.astype(float, copy=False)
@@ -34,7 +33,44 @@ def contrast_per_pixel(im):
         tmp_x = tmp[slc_neg]
         abs(subtract(im[slc_pos], im[slc_neg], tmp_x), tmp_x)
         total += 2*tmp_x.sum()
-    return total / (im.size * (3**im.ndim-1))
+
+    # Compute the scale
+    # In the original paper this was im.size
+    # This value is essentially im.size * (3**nim.dim-1) to account for number of neighbors
+    scale = __get_total_neighbors(im.shape)
+    return total / scale
+
+def __get_total_neighbors(shape):
+    """
+    Gets the total number of neighbors over all pixels in an image assuming full connectivity. Doing
+    num_px * (3**ndim-1) would get close but doesn't account for pixels along the corners/edges that
+    have less neighbors. For small images this can make a big difference, for larger images not so
+    much.
+
+    For example, for a 16x16 image the true value is 9.2% lower than the estimated value but for a
+    256x256 image this value is only 0.6% smaller.
+
+    This assumes every dimension is at least 3 long.
+    """
+    from numpy import arange
+    from .util import prod
+
+    ndim = len(shape)
+
+    # Count the bulk of the pixels in the core
+    core_n_pixels = prod(x-2 for x in shape)
+    core_n_neighbors = 3**ndim-1
+    count = core_n_pixels * core_n_neighbors
+
+    # Go through pixels that are along planes/edges/corners
+    # The number of neighbors is missing n_axes+1 axes
+    n_axes = arange(ndim)
+    n_neighbors = core_n_neighbors - (2**n_axes * 3**(ndim-n_axes-1)).cumsum()
+    for inds in axes_combinations(ndim):
+        n_pixels = core_n_pixels // prod(shape[i]-2 for i in inds)
+        count += 2**len(inds) * n_pixels * n_neighbors[len(inds)-1]
+
+    return count
 
 def distortion(im1, im2, mask=None):
     """
@@ -215,7 +251,6 @@ def __calc_block_min_max(im, block_size, compute_centers=False): # pylint: disab
     Calculate the minimum and maximum (and possibly the center values) of all blocks in an image.
     This includes all of the blocks that don't quite fit along the edges.
     """
-    from itertools import chain, combinations
     from numpy import amin, amax, copyto, fromiter
     from .util import block_view, reduce_blocks, tuple_set
 
@@ -245,7 +280,7 @@ def __calc_block_min_max(im, block_size, compute_centers=False): # pylint: disab
     # Compute the values for remainders
     # We need to do this for every combination of axes
     remainder = fromiter((x%sz for x, sz in zip(im.shape, block_size)), int)
-    for inds in chain.from_iterable(combinations(range(im.ndim), i+1) for i in range(im.ndim)):
+    for inds in axes_combinations(im.ndim):
         inds = list(inds)
         if (remainder[inds] == 0).any(): continue # no remainder for this combination
 

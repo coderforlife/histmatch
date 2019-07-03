@@ -124,6 +124,15 @@ def get_diff_slices(ndim):
             out.append((item, item_inv))
     return out
 
+def axes_combinations(ndim):
+    """
+    A generator for all possible combinations of axes not including no axes. For example, for ndim=2
+    this produces (0,), (1,), (0, 1) and for ndim=3 this produces (0,), (1,), (2,), (0, 1), (0, 2),
+    (1, 2), (0, 1, 2).
+    """
+    from itertools import chain, combinations
+    yield from chain.from_iterable(combinations(range(ndim), i+1) for i in range(ndim))
+
 @lru_cache(maxsize=None)
 def log2i(val):
     """Gets the log base 2 of an integer, rounded up to an integer."""
@@ -142,6 +151,13 @@ def tuple_set(base, values, inds):
     for i in range(len(inds)-1):
         new += (values[i],) + base[inds[i]+1:inds[i+1]]
     return new + (values[-1],) + base[inds[-1]+1:]
+
+def prod(iterable):
+    """Product of all values in an iterable, like sum() but for multiplication."""
+    # NOTE: in Python 3.8 this is now available as math.prod()
+    from functools import reduce
+    from operator import mul
+    return reduce(mul, iterable, 1)
 
 
 ##### Correlate Function #####
