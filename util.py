@@ -132,6 +132,16 @@ def is_power_of_2(val):
     """Returns True if an integer is a power of 2. Only works for x > 0."""
     return not val & (val-1)
 
+def tuple_set(base, values, inds):
+    """
+    Creates a new tuple with the given values put at indices and otherwise the same as base. The
+    list of inds must be in sorted order.
+    """
+    new = base[:inds[0]]
+    for i in range(len(inds)-1):
+        new += (values[i],) + base[inds[i]+1:inds[i+1]]
+    return new + (values[-1],) + base[inds[-1]+1:]
+
 
 ##### Correlate Function #####
 def correlate(im, weights, output=None, mode='reflect', cval=0.0):
@@ -177,3 +187,33 @@ def __decompose_2d(kernel): # [h1,h2]
     if sum(s > max(kernel.shape)*EPS*s.max()) != 1: return None, None
     s = sqrt(s[0])
     return u[:, 0]*s, vh[0, :]*s
+
+
+##### Image as blocks #####
+def block_view(im, block_size):
+    """
+    View an image as a series of non-overlapping blocks. If the shape of the image is not a multiple
+    of the block size in a particular dimension, the extra rows/columns/planes will simply be
+    dropped.
+
+    This function causes no memory allocation instead it manipulates the view of the image. The
+    returned view with have the square of the number of dimensions originally in the image with the
+    last being exactly block_size.
+    """
+    if len(block_size) != im.ndim: raise ValueError('block_size')
+    from numpy.lib.stride_tricks import as_strided
+    shape = tuple(x//sz for x, sz in zip(im.shape, block_size)) + block_size
+    strides = tuple(stride*sz for stride, sz in zip(im.strides, block_size)) + im.strides
+    return as_strided(im, shape=shape, strides=strides)
+
+def reduce_blocks(blocks, func, out=None):
+    """
+    Take a set of blocks like those given by block_view and apply func to each each axis of each
+    block, eventually reducing to a single scalar for each block. That function must take a
+    positional argument of axis (always given -1) and a keyword argument of out.
+    """
+    n = blocks.ndim // 2
+    blocks = func(blocks, -1)
+    for _ in range(n - 2):
+        blocks = func(blocks, -1, out=blocks[..., 0])
+    return func(blocks, -1, out=out)
