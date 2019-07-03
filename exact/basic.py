@@ -23,18 +23,18 @@ def calc_info_rand(im):
         im = im + random(im.shape) - 0.5
     return im
 
-def calc_info_gaussian_laplacian(im, sigmas=(0.5, 1.0, 1.0)):
+def calc_info_gaussian_laplacian(im, sigmas=(0.5, 1.0)):
     """
     Assign strict ordering to image pixels. The returned value is the same shape but with an extra
     dimension for the results of the additional filters. This stack needs to be lex-sorted.
 
     This calculates the extra information by taking a series of Gaussian and Laplacian of Gaussian
     convolutions with the standard deviation of the kernel increasing to use information from
-    further away in the picture. The default settings result in 6 additional versions of the image,
-    alternating between Gaussian and Laplacian of Gaussian with a standard deviation of 0.5, 1.0,
-    and 1.5. The absolute value of the Laplacian of Gaussian results are taken. The logic behind
-    the alternation is one gives information about local brightness and the other one gives
-    information about the edges.
+    further away in the picture. The default settings result in 4 additional versions of the image,
+    alternating between Gaussian and Laplacian of Gaussian with a standard deviation of 0.5 and 1.0.
+    The absolute value of the Laplacian of Gaussian results are taken. The logic behind the
+    alternation is one gives information about local brightness and the other one gives information
+    about the edges.
 
     REFERENCES
       1. Coltuc D and Bolon P, 1999, "Strict ordering on discrete images and applications"
@@ -96,6 +96,9 @@ def calc_info_local_contrast(im, order=6):
         if shift > 64:
             layer += 1
             shift = 0
+
+    print(out.shape, layer)
+
     out[..., -1] |= im << shift
     return out[..., 0] if layer == 0 else out
 
