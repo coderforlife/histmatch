@@ -49,7 +49,7 @@ def histeq_exact(im, h_dst=256, mask=None, return_fails=False, method='VA', **kw
 
         Method has been adapted to support 3D data. Does not support anisotropic data.
 
-    LM: Local Means by Coltuc, Bolon and Chassery [5]
+    LC: Local Contrast by Coltuc, Bolon and Chassery [5]
         This uses the gray levels of expanding mean filters to distinguish between same-valued
         pixels. Accepts a `order` argument which has a default of 6 that controls how far away
         pixels are used to help distinguish pixels from each other. An order of 1 would be using
@@ -59,12 +59,22 @@ def histeq_exact(im, h_dst=256, mask=None, return_fails=False, method='VA', **kw
 
         Method has been adapted to support 3D data. Does not support anisotropic data.
 
-    WA: Wavelet Approach by Wan and Shi [6]
+    LM: Local Means by Coltuc, Bolon and Chassery [5,6]
+        This uses the gray levels of expanding mean filters to distinguish between same-valued
+        pixels. Accepts a `order` argument which has a default of 6 that controls how far away
+        pixels are used to help distinguish pixels from each other. An order of 1 would be using
+        only the pixel itself and no neighbors (but this isn't allowed). It has been optimized for
+        8-bit images which take about twice the memory and 8x the time from classical histeq. Other
+        image types which can take 7x the memory and 40x the time.
+
+        Method has been adapted to support 3D data. Does not support anisotropic data.
+
+    WA: Wavelet Approach by Wan and Shi [7]
         ...
 
         Method has been adapted to support 3D data. Does not support anisotropic data.
 
-    VA: Variational Approach by Nikolova, Wen and Chan [7]
+    VA: Variational Approach by Nikolova, Wen and Chan [8]
         This attempts to reconstruct the original real-valued version of the image and thus is a
         continuous-valued version of the image which can be strictly ordered. This has several
         parameters including niters, beta, alpha_1, alpha_2, and gamma to control how the
@@ -81,11 +91,12 @@ def histeq_exact(im, h_dst=256, mask=None, return_fails=False, method='VA', **kw
       3. Rosenfeld A and Kak A, 1982, "Digital Picture Processing".
       4. Eramian M and Mould D, 2005, "Histogram Equalization using Neighborhood Metrics",
          Proceedings of the Second Canadian Conference on Computer and Robot Vision.
-      5. Coltuc D, Bolon P and Chassery J-M, 2006, "Exact histogram specification", IEEE
+      5. Coltuc D and Bolon P, 1999, "Strict ordering on discrete images and applications".
+      6. Coltuc D, Bolon P and Chassery J-M, 2006, "Exact histogram specification", IEEE
          Transcations on Image Processing 15(5):1143-1152.
-      6. Wan Y and Shi D, 2007, "Joint exact histogram specification and image enhancement through
+      7. Wan Y and Shi D, 2007, "Joint exact histogram specification and image enhancement through
          the wavelet transform", IEEE Transcations on Image Processing, 16(9):2245-2250.
-      7. Nikolova M and Steidl G, 2014, "Fast ordering algorithm for exact histogram specification",
+      8. Nikolova M and Steidl G, 2014, "Fast ordering algorithm for exact histogram specification",
          IEEE Transcations on Image Processing, 23(12):5274-5283.
 
     Additional references for each are available with their respective calc_info functions.
@@ -136,6 +147,8 @@ def __calc_info(im, method, **kwargs):
         from .basic import calc_info_neighborhood_avg as calc_info
     elif method == 'nv':
         from .basic import calc_info_neighborhood_voting as calc_info
+    elif method == 'lc':
+        from .basic import calc_info_local_contrast as calc_info
     elif method == 'lm':
         from .lm import calc_info
     elif method == 'va':

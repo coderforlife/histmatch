@@ -4,7 +4,7 @@ Implements local means strict ordering for use with exact histogram equalization
 
 from functools import lru_cache
 from numpy import uint64, ceil, sqrt, log2, empty, unique, ogrid
-from ..util import FLOAT64_NMANT, trim_zeros
+from ..util import FLOAT64_NMANT, trim_zeros, as_unsigned, correlate
 
 def calc_info(im, order=6):
     """
@@ -34,8 +34,6 @@ def calc_info(im, order=6):
          Transcations on Image Processing 15(5):1143-1152
     """
     # this uses scipy's 'reflect' mode (duplicated edge)
-
-    from ..util import as_unsigned, correlate
 
     # Deal with arguments
     if order < 2: raise ValueError('order')

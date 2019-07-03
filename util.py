@@ -81,6 +81,12 @@ def get_im_min_max(im):
     mn, mx = im.min(), im.max()
     return (mn, mx) if mn < 0.0 or mx > 1.0 else get_dtype_min_max(dt)
 
+def get_uint_dtype_fit(nbits):
+    """
+    Gets the uint dtype string that describes the type that has at least the given number of bits.
+    """
+    return 'u' +str(max(2**(log2i(nbits)-3), 1))
+
 
 ##### Data Type Conversions #####
 def as_unsigned(im):

@@ -2,12 +2,13 @@
 Implements basic strict ordering techniques for use with exact histogram equalization. Included are:
 
 * Random
+* Local contrast
 * Neighborhood average and inverted neighborhood average
 * Neighborhood voting and inverted neighborhood voting
 """
 
 from numpy import empty, uint64
-from ..util import as_unsigned, log2i
+from ..util import as_unsigned, log2i, get_uint_dtype_fit
 
 def calc_info_rand(im):
     """
@@ -21,6 +22,52 @@ def calc_info_rand(im):
     if im.dtype.kind in 'iub':
         im = im + random(im.shape) - 0.5
     return im
+
+def calc_info_local_contrast(im, order=6):
+    """
+    Assign strict ordering to image pixels. The returned value is the same shape as the image but
+    with values for each pixel that can be used for strict ordering. For some types of images or
+    large orders this will return a stack of image values for lex-sorting.
+
+    This calculates the extra values by taking the difference between the maximum and minimum of
+    the values within increasing sized disks around the pixel as per equation 6 in [1].
+
+    REFERENCES
+      1. Coltuc D and Bolon P, 1999, "Strict ordering on discrete images and applications"
+    """
+    from scipy.ndimage import maximum_filter, minimum_filter
+    from ..util import generate_disks
+    im = as_unsigned(im)
+    disks = generate_disks(order, im.ndim)
+
+    # Floating-point images cannot be compacted
+    if im.dtype.type == 'f':
+        out = empty(im.shape + (order,))
+        min_tmp = out[..., -1]
+        for i, disk in enumerate(disks):
+            maximum_filter(im, footprint=disk, output=out[..., i])
+            minimum_filter(im, footprint=disk, output=min_tmp)
+            out[..., i] -= min_tmp
+        out[..., -1] = im
+        return out
+
+    # Integral images can be compacted or at least become stored in uint64 outputs
+    bpp = im.dtype.itemsize*8
+    dst_type = uint64 if order*bpp >= 64 else get_uint_dtype_fit(order*bpp)
+    out = empty(im.shape + ((order*bpp+63)//64,), dst_type)
+    max_tmp, min_tmp = empty(im.shape, dst_type), empty(im.shape, dst_type)
+    layer, shift = 0, 0
+    for disk in disks:
+        maximum_filter(im, footprint=disk, output=max_tmp)
+        minimum_filter(im, footprint=disk, output=min_tmp)
+        max_tmp -= min_tmp
+        out[..., layer] |= max_tmp << shift
+        shift += bpp
+        if shift > 64:
+            layer += 1
+            shift = 0
+    out[..., -1] |= im << shift
+    return out[..., 0] if layer == 0 else out
 
 def calc_info_neighborhood_avg(im, size=3, invert=False):
     """
@@ -109,7 +156,7 @@ def calc_info_neighborhood_voting(im, size=3, invert=False):
         out[..., 1] = im # the original image is still part of this
     else:
         # Compact the results
-        out = zeros(im.shape, 'u' +str(max(2**log2i(nbits), 8)))
+        out = zeros(im.shape, get_uint_dtype_fit(nbits))
         __count_votes(im, out, size, invert)
         out |= im.astype(out.dtype) << shift # the original image is still part of this
 
@@ -120,6 +167,10 @@ def __count_votes(im, out, size, invert):
     Count the votes for each pixel in a size-by-size region around each one, saving the totals to
     out. If invert is supplied, every pixel less than the values for it, otherwise every pixel
     greater than it votes for it.
+
+    REFERENCES
+      1. Eramian M and Mould D, 2005, "Histogram Equalization using Neighborhood Metrics",
+         Proceedings of the Second Canadian Conference on Computer and Robot Vision.
     """
     # Try to use the Cython functions if possible - they are ~160x faster!
     try:
