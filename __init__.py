@@ -4,8 +4,10 @@ Histogram calculation and equalization/matching techniques.
 
 from .classical import histeq, histeq_trans, histeq_apply
 from .exact import histeq_exact
+from .metrics import (contrast_per_pixel, distortion, count_differences, psnr, ssim,
+                      enhancement_measurement)
 
-# numpy >= v1.8
+# numpy >= v1.15, scipy >= v1.0
 
 def imhist(im, nbins=256, mask=None):
     """Calculate the histogram of an image. By default it uses 256 bins (nbins)."""
