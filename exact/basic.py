@@ -23,7 +23,7 @@ def calc_info_rand(im):
         im = im + random(im.shape) - 0.5
     return im
 
-def calc_info_gaussian_laplacian(im, sigmas=[0.5, 1.0, 1.5]):
+def calc_info_gaussian_laplacian(im, sigmas=(0.5, 1.0, 1.0)):
     """
     Assign strict ordering to image pixels. The returned value is the same shape but with an extra
     dimension for the results of the additional filters. This stack needs to be lex-sorted.

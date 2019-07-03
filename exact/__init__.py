@@ -3,6 +3,9 @@ Implements exact histogram equalization / matching. The underlying methods for e
 ordering are in other files in this module.
 """
 
+from numbers import Integral
+from numpy import floor, intp, empty, tile, repeat, linspace, lexsort
+
 def histeq_exact(im, h_dst=256, mask=None, return_fails=False, method='VA', **kwargs):
     """
     Like histeq except the histogram of the output image is exactly as given in h_dst. This is
@@ -108,8 +111,6 @@ def histeq_exact(im, h_dst=256, mask=None, return_fails=False, method='VA', **kw
 
     Additional references for each are available with their respective calc_info functions.
     """
-    from numbers import Integral
-    from numpy import tile
     from ..util import check_image_mask_single_channel
 
     # Check arguments
@@ -180,7 +181,6 @@ def __sort_pixels(values, shape, mask=None, return_fails=False):
         sort_pass1 = values.argsort()
     else:
         # Tuple of values per pixel - need lexsort
-        from numpy import lexsort
         assert values.shape[:len(shape)] == shape
         values = values.reshape((-1, values.shape[-1]))
         sort_pass1 = lexsort(values.T, 0)
@@ -214,7 +214,6 @@ def __calc_transform(idx, h_dst, dt, n):
     there could be fractional amounts, make sure they are added up and put somewhere.
     """
     # pylint: disable=invalid-name
-    from numpy import floor, intp, empty, repeat, linspace
     from ..util import get_dtype_min_max
     H_whole = floor(h_dst).astype(intp, copy=False)
     nw = H_whole.sum()

@@ -144,7 +144,7 @@ def __is_reflection_coord(coord):
         coord = coord[:-1]
     return coord[-1] == 2
 
-def __calculate_d_Phi(u, t, G_info, alpha_2, d_phi, denom):
+def __calculate_d_Phi(u, t, G_info, alpha_2, d_phi, denom): # pylint: disable=too-many-arguments
     """
     Phi' = sum(sum_eta(phi'(u[i]-u[j])) = G^T phi'(G u) [3 eq 9]
 
