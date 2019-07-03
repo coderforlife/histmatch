@@ -159,6 +159,35 @@ def prod(iterable):
     from operator import mul
     return reduce(mul, iterable, 1)
 
+@lru_cache(maxsize=None)
+def generate_disks(order, ndim, hollow=False):
+    """
+    Generate disk/sphere masks up to a particular order for a number of dimensions. Does not include
+    order 1 (which would simply be the 1 surrounded by zeros). The order is based on number of
+    unique distance values from the middle of the disk/sphere.
+
+    Returns a tuple of boolean masks from highest to lowest order. If hollow=True is provided then
+    the masks are 0 where other orders would cover the values, otherwise the disks are solid True.
+    Each individual mask is made to be as small as possible by removing extraneous 0s on the
+    outside.
+    """
+    from numpy import ceil, ogrid, unique
+    size = ceil(0.5*sqrt(8*order+1)-0.5).astype(int)-1
+    slc = slice(-size, size+1) # the filter is 2*size+1 square
+    raw = sum(x*x for x in ogrid[(slc,)*ndim])
+    values = unique(raw)[1:order][::-1]
+    return tuple(trim_zeros((raw == i) if hollow else (raw <= i)) for i in values)
+
+def trim_zeros(arr):
+    """
+    Trims rows/columns/planes of all zeros from an array. It is assumed that the array is
+    symmetrical in all directions.
+    """
+    slices = (slice(1, -1),)*arr.ndim
+    while arr.size and (arr[0] == 0).all():
+        arr = arr[slices]
+    return arr
+
 
 ##### Correlate Function #####
 def correlate(im, weights, output=None, mode='reflect', cval=0.0):

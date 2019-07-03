@@ -3,9 +3,8 @@ Implements local means strict ordering for use with exact histogram equalization
 """
 
 from functools import lru_cache
-from numpy import uint64, ceil, sqrt, log2
-from numpy import empty, unique, ogrid
-from ..util import FLOAT64_NMANT
+from numpy import uint64, ceil, sqrt, log2, empty, unique, ogrid
+from ..util import FLOAT64_NMANT, trim_zeros
 
 def calc_info(im, order=6):
     """
@@ -81,7 +80,7 @@ def __get_filters(dt, order, ndim):
     raw = sum(x*x for x in ogrid[(slc,)*ndim])
 
     if dt.kind == 'f' or dt.itemsize > 2:
-        return tuple(__trim_zeros(raw == i) for i in unique(raw)[1:order][::-1]), False
+        return tuple(trim_zeros(raw == i) for i in unique(raw)[1:order][::-1]), False
 
     # if dt.kind == 'u' and dt.itemsize <= 2 - pack filters tightly
     nbits = dt.itemsize*8
@@ -99,15 +98,5 @@ def __get_filters(dt, order, ndim):
             fltr[raw == vals[order]] = float(1 << used_bits)
             used_bits += nbits + extra_bits[order]
             order -= 1
-        out.append(__trim_zeros(fltr))
+        out.append(trim_zeros(fltr))
     return tuple(out), order < 0
-
-def __trim_zeros(arr):
-    """
-    Trims rows/columns/planes of all zeros from an array. It is assumed that the array is
-    symmetrical in all directions.
-    """
-    slices = (slice(1, -1),)*arr.ndim
-    while arr.size and (arr[0] == 0).all():
-        arr = arr[slices]
-    return arr
