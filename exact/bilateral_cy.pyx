@@ -15,7 +15,7 @@ from cpython.pycapsule cimport PyCapsule_New, PyCapsule_GetPointer
 
 cimport numpy as np
 
-def get_user_data(np.ndarray[double] spatial, double scale, np.ndarray[double] intensity_lut=None):
+def get_user_data(double[::1] spatial, double scale, double[::1] intensity_lut=None):
     """
     Gets the user data pointer for the bilateral_filter* low-level callables. This requires a 1D
     double array for the precomputed spatial kernel and a double for the intensity scale
@@ -26,9 +26,9 @@ def get_user_data(np.ndarray[double] spatial, double scale, np.ndarray[double] i
     cdef BilateralFilterData *user_data = <BilateralFilterData*>malloc(sizeof(BilateralFilterData))
     if user_data is NULL: raise MemoryError()
     user_data[0].scale = scale
-    user_data[0].spatial = <double*>spatial.data
-    user_data[0].intensity_lut = NULL if intensity_lut is None else <double*>intensity_lut.data
-    return PyCapsule_New(user_data, NULL, bilateral_filter_user_data_destructor)
+    user_data[0].spatial = &spatial[0]
+    user_data[0].intensity_lut = NULL if intensity_lut is None else &intensity_lut[0]
+    PyCapsule_New(user_data, NULL, bilateral_filter_user_data_destructor)
 
 cdef void bilateral_filter_user_data_destructor(object obj):
     """Free the user data pointer."""
