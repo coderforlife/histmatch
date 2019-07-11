@@ -2,12 +2,15 @@
 Various image metrics from a variety of papers.
 """
 
+from functools import lru_cache
 from collections.abc import Sequence
 
-from numpy import empty
+from numpy import asarray, arange, empty, exp, log, log10, subtract, stack
 
 from .util import (get_dtype_min_max, check_image_single_channel, check_image_mask_single_channel,
                    axes_combinations)
+
+# TODO: variational ability to reconstruct original
 
 def contrast_per_pixel(im):
     """
@@ -24,7 +27,7 @@ def contrast_per_pixel(im):
      1. Eramian M and Mould D, 2005, "Histogram Equalization using Neighborhood Metrics",
         Proceedings of the Second Canadian Conference on Computer and Robot Vision.
     """
-    from numpy import subtract, abs # pylint: disable=redefined-builtin
+    from numpy import abs # pylint: disable=redefined-builtin
     from .util import get_diff_slices
     im = im.astype(float, copy=False)
     tmp = empty(im.shape)
@@ -52,7 +55,6 @@ def __get_total_neighbors(shape):
 
     This assumes every dimension is at least 3 long.
     """
-    from numpy import arange
     from .util import prod
 
     ndim = len(shape)
@@ -138,7 +140,6 @@ def psnr(im1, im2, mask=None):
      2. Nikolova M and Steidl G, 2014, "Fast Ordering Algorithm for Exact Histogram Specification"
         IEEE Trans. on Image Processing, 23(12):5274-5283
     """
-    from numpy import log10
     im1, mask = check_image_mask_single_channel(im1, mask)
     im2 = check_image_single_channel(im2)
     if im1.shape != im2.shape: raise ValueError('im1 and im2 must be the same shape')
@@ -203,7 +204,7 @@ def enhancement_measurement(im, block_size=3, metric='sdme', alpha=0.75):
         enhancement", IEEE Transactions on IT in Biomedicine, 15(6):918-928.
     """
     # TODO: test, get response, and also just implement using convolutions like in measures.m?
-    from numpy import log10 as log, abs, asarray, isfinite # pylint: disable=redefined-builtin
+    from numpy import abs, isfinite # pylint: disable=redefined-builtin
     im = check_image_single_channel(im)
     metric = metric.lower()
     if metric not in ('eme', 'emee', 'ame', 'amee', 'logame', 'logamee', 'sdme', 'sdmee'):
@@ -232,7 +233,7 @@ def enhancement_measurement(im, block_size=3, metric='sdme', alpha=0.75):
         numer, denom = maxes+2*centers, maxes-2*centers
 
     # Adjust metric values for undefined, infinities, 0 values, and negatives and divide
-    denom += 0.0001
+    #denom += 0.0001
     mask = numer != 0
     mask &= denom != 0
     mask &= isfinite(numer)
@@ -242,12 +243,12 @@ def enhancement_measurement(im, block_size=3, metric='sdme', alpha=0.75):
 
     # Measure of Enhancement (standard)
     # In theory we could do log(metric.prod()) which would be faster but that overflows
-    if not entropic: return 20/metric.size * log(metric, metric).sum()
+    if not entropic: return 20/metric.size * log10(metric, metric).sum()
 
     # Measure of Enhancement by Entropy (with many alphas)
     scale = alpha/metric.size
     alpha, metric = alpha[None, :], metric[:, None]
-    return scale * (metric**alpha * log(metric)).sum()
+    return scale * (metric**alpha * log10(metric)).sum()
 
 def __calc_block_min_max(im, block_size, compute_centers=False): # pylint: disable=too-many-locals
     """
@@ -380,9 +381,9 @@ def __ssim_im(im1, im2, block_size, k1, k2, sigma): # pylint: disable=too-many-a
      2. Avanaki, A N, 2009, "Exact global histogram specification optimized for structural
         similarity", Optical Review, 16:613-621.
     """
+    # pylint: disable=invalid-name
     from scipy.ndimage import gaussian_filter
     from numpy import multiply, add, divide
-    # pylint: disable=invalid-name
 
     # Calculate constants
     mn, mx = get_dtype_min_max(im1.dtype)
@@ -419,5 +420,162 @@ def __ssim_im(im1, im2, block_size, k1, k2, sigma): # pylint: disable=too-many-a
     denom = multiply(B1, B2, B1) # denominator
     return divide(numer, denom, numer)
 
-# TODO: variational ability to reconstruct original
-# TODO: round-about evaluation
+def contrast_enhancement(im1, im2, mask=None, p=5, freqs=None, M=3): # pylint: disable=too-many-arguments
+    """
+    Computes the contrast enhancement between the original image (im1) and the enhanced image (im2).
+    This measure of contrast enhancement is based on the center-surround effect in the retina. As
+    described in [1] in eq 16-25, 31-32 for luminance (grayscale) images, this requires applying a
+    large series of band-pass filters to the images to detect different frequencies. The frequencies
+    (𝜈 in eq 23) default to 24 recommended values 72π/80, 69π/80, ..., 6π/80, 3π/80 in [1]. This
+    means that 24*4=96 convolutions are required making the computation of this metric extremely
+    slow. The M parameter defaults to the recommended value of 3 from [1] and controls width of the
+    band passes.
+
+    The p parameter is the most 'critical' parameter and controls the sensitivity to spatial
+    frequencies. Low values, like 1 and 2, cause the results to be more sensitive spatial
+    frequencies within the bands while high values like 15 and infinity (np.inf) cause all spatial
+    frequencies to be considered more equally. The default is set to 5 which is in-between the
+    extremes since there is no recommended value in the paper. The paper recommends that you try
+    several values for p. To save re-computing the convolutions for each one, this function supports
+    passing p as a sequence and all will be computed and returned.
+
+    NOTE: This does not currently take into account the requirement that χ_he ≈ χ_ho from eq 33-35.
+
+    REFERENCES:
+     1. Sen D and Pal S K, May 2011, "Automatic Exact Histogram Specification for Contrast
+        Enhancement and Visual System Based Quantitative Evaluation", IEEE Transactions on Image
+        Processing, 20(5):1211-1220.
+    """
+    # pylint: disable=invalid-name
+    from numpy import pi
+
+    im1, mask = check_image_mask_single_channel(im1, mask)
+    im2 = check_image_single_channel(im2)
+    if im1.shape != im2.shape: raise ValueError('im1 and im2 must be the same shape')
+    if im1.dtype != im2.dtype: raise ValueError('im1 and im2 must be the same dtype')
+    p = asarray(p if isinstance(p, Sequence) else [p])
+    if (p < 0).any(): raise ValueError('p')
+    freqs = (arange(72, 0, -3) * (pi / 80)) if freqs is None else asarray(freqs)
+    if ((freqs < 0) | (freqs > pi)).any(): raise ValueError('freqs')
+    if M <= 1: raise ValueError('M')
+
+    chi = __compute_chi(im1, im2, p, freqs, M)
+    if mask is not None: chi = chi[mask]
+    if len(p) == 1: return chi.mean()
+    return chi.reshape(-1, len(p)).mean(0)
+
+    # Calculating the increase in contrast in heterogeneous and homogeneous regions
+    # Sigma=0.455
+    # if Sigma <= 0 or Sigma >= 1: raise ValueError('Sigma')
+    # if mask is not None: contrasts_im1 = contrasts_im1[mask]
+    # contrasts_im1 /= contrasts_im1.max()
+    # contrasts_im1 -= 1
+    # f = -1/(2*Sigma*Sigma)
+    # alpha = exp(contrasts_im1*contrasts_im1*f)
+    # alpha_1 = 1 + exp(f)
+    # chi_heterogeneous = alpha * chi
+    # chi_homogeneous = (alpha_1  - alpha) * chi
+
+def __compute_chi(im1, im2, p, freqs, M): #pylint: disable=invalid-name
+    """
+    Computes the contrast enhancement metric χ from [1] defined as:
+
+        χ(x,y) = (mean_c_L + c_L_E(x,y)) / (mean_c_L + c_L(x,y))    (eq 31 and 32)
+
+    where c_L is the luminance (i.e. grayscale) contrast for a pixel in the image (im1) and c_L_E
+    is it for a pixel in the enhanced image (im2). The mean_c_L is the average of the c_L values
+    across the entire image. The c_L values are computed as:
+
+        c_L(x,y) = || 1/P * c_σ_g₁(x,y) ||ₚ         (eq 24)
+
+    where ||...||ₚ is the ℓₚ-norm for a given positive value p and:
+
+        P = exp(-f) - exp(-f*M²)                    (eq 25)
+        f = log(1/M²)/(1-M²)
+        M>1 is an arbitrary value
+
+    The c_σ_g₁(x,y) values are computed in __compute_contrasts and that is where the frequencies
+    (𝜈) come into play.
+
+    REFERENCES:
+     1. Sen D and Pal S K, May 2011, "Automatic Exact Histogram Specification for Contrast
+        Enhancement and Visual System Based Quantitative Evaluation", IEEE Transactions on Image
+        Processing, 20(5):1211-1220.
+    """
+    #pylint: disable=invalid-name
+    from numpy.linalg import norm
+
+    # Precompute kernels
+    f = log(1/(M*M)) / (1-M*M)
+    sigma_g1s = 2 * f / (freqs*freqs)
+    radius = int(3 * M*sigma_g1s.max() + 0.5)
+    g1s = [__gaussian(sigma_g1, radius) for sigma_g1 in sigma_g1s]
+    g2s = [__gaussian(sigma_g2, radius) for sigma_g2 in M*sigma_g1s]
+
+    # Compute the contrasts for each frequency
+    contrasts_im1 = __compute_contrasts(im1, g1s, g2s)
+    contrasts_im2 = __compute_contrasts(im2, g1s, g2s)
+
+    # Compute the l-p norm of the contrasts (along with scaling)
+    P_inv = 1/(exp(-f)-exp(-f*M*M))
+    contrasts_im1 *= P_inv
+    contrasts_im2 *= P_inv
+    if len(p) == 1:
+        contrasts_im1 = norm(contrasts_im1, p, -1, True)
+        contrasts_im2 = norm(contrasts_im2, p, -1, True)
+    else:
+        contrasts_im1 = stack([norm(contrasts_im1, p, -1) for p in p], -1)
+        contrasts_im2 = stack([norm(contrasts_im2, p, -1) for p in p], -1)
+
+    # Compute the mean
+    c_I_mean = contrasts_im1.reshape(-1, len(p)).mean(0)
+
+    # Compute chi
+    return (c_I_mean + contrasts_im2) / (c_I_mean + contrasts_im1)
+
+def __compute_contrasts(im, g1s, g2s):
+    """
+    Compute the contrasts for measuring contrast enhancement. This computes c_σ_g₁ from [1] for each
+    pixel across all of the frequencies, which is defined as:
+
+        c_σ_g₁(x,y) = O(x,y) / S(x,y) for each σ_g1 (eq 22)
+        O(x,y) = C(x,y) - S(x,y)                    (eq 19)
+        C(x,y) = im ⊗ g₁(x,y)                       (eq 20)
+        S(x,y) = im ⊗ g₂(x,y)                       (eq 21)
+        σ_g₁ = 2 log(1/M²)/(1-M²) /𝜈² for 𝜈∈[0,π]   (eq 23)
+            𝜈 = 72π/80, 69π/80, ..., 6π/80, 3π/80
+        g(x,y) = exp(-1/(2σ²(x²+y²))) - a Gaussian with σ_g1 given above or σ_g₂=M*σ_g₁
+
+    where ⊗ is a convolution. All of these are fairly easily expanded to any number of dimensions by
+    using a higher-dimenional Gaussian kernel (actually a 1D Gaussian kernel is applied along each
+    dimension).
+
+    The g₁ and g₂ kernels are given for all σs along with the image.
+
+    REFERENCES:
+     1. Sen D and Pal S K, May 2011, "Automatic Exact Histogram Specification for Contrast
+        Enhancement and Visual System Based Quantitative Evaluation", IEEE Transactions on Image
+        Processing, 20(5):1211-1220.
+    """
+    #from numpy import abs #pylint: disable=redefined-builtin
+    from .util import correlate
+    im = im.astype(float, copy=False)
+    contrasts = empty(im.shape + (len(g1s),))
+    for i, (g_1, g_2) in enumerate(zip(g1s, g2s)):
+        center, surround = correlate(im, g_1), correlate(im, g_2)
+        contrast = contrasts[..., i]
+        subtract(center, surround, contrast)
+        #surround[surround == 0] = EPS
+        contrast /= surround
+        #abs(contrast, contrast) # norm will automatically take the absolute value for us
+    return contrasts
+
+@lru_cache(maxsize=None)
+def __gaussian(sigma, radius):
+    """Creates a 1D Gaussian kernel for the given sigma that is truncated at the given radius."""
+    # pylint: disable=invalid-name
+    x = arange(-radius, radius+1)
+    y = exp(-0.5 / (sigma * sigma) * x*x)
+    y /= y.sum()
+    return y
+
