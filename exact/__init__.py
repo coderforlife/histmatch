@@ -55,10 +55,10 @@ def histeq_exact(im, h_dst=256, mask=None, return_fails=False, method='VA', **kw
     GL: Gaussian and Lapacian Filtering by Coltuc and Bolon [5]
         Uses a series of Gaussian and Laplacian of Gaussian (LoG) convolutions with the standard
         deviation of the kernel increasing to use information from further away in the picture. The
-        default creates 2 additional versions of the image, alternating between Gaussian and LoG
-        with standard deviations of 1.0. The absolute value of the LoG is used. The logic behind
-        the alternation is one gives information about local brightness and the other one gives
-        information about the edges.
+        default creates 4 additional versions of the image, alternating between Gaussian and LoG
+        with standard deviations of 0.5 and 1.0. The absolute value of the LoG is used. The logic
+        behind the alternation is one gives information about local brightness and the other one
+        gives information about the edges.
 
         Method has been adapted to support 3D data. Does not support anisotropic data.
 

@@ -23,15 +23,15 @@ def calc_info_rand(im):
         im = im + random(im.shape) - 0.5
     return im
 
-def calc_info_gaussian_laplacian(im, sigmas=(1.0,)):
+def calc_info_gaussian_laplacian(im, sigmas=(0.5, 1.0)):
     """
     Assign strict ordering to image pixels. The returned value is the same shape but with an extra
     dimension for the results of the additional filters. This stack needs to be lex-sorted.
 
     This calculates the extra information by taking a series of Gaussian and Laplacian of Gaussian
     convolutions with the standard deviation of the kernel increasing to use information from
-    further away in the picture. The default settings result in 2 additional versions of the image,
-    alternating between Gaussian and Laplacian of Gaussian with a standard deviation of 1.0.
+    further away in the picture. The default settings result in 4 additional versions of the image,
+    alternating between Gaussian and Laplacian of Gaussian with a standard deviation of 0.5 and 1.0.
     The absolute value of the Laplacian of Gaussian results are taken. The logic behind the
     alternation is one gives information about local brightness and the other one gives information
     about the edges.
@@ -46,7 +46,7 @@ def calc_info_gaussian_laplacian(im, sigmas=(1.0,)):
     im = as_float(im)
     out = empty(im.shape + (2*len(sigmas)+1,))
     for i, sigma in enumerate(sigmas):
-        gauss = gaussian_filter(im, sigma, output=out[..., 2*i])
+        gauss = gaussian_filter(im, sigma, output=out[..., 2*i], truncate=2.5)
         lap = laplace(gauss, output=out[..., 2*i])
         abs(lap, lap)
     out[..., -1] = im
