@@ -467,16 +467,15 @@ def contrast_enhancement(im1, im2, mask=None, p=5, freqs=None, M=3): # pylint: d
     # Calculating the increase in contrast in heterogeneous and homogeneous regions
     # Sigma=0.455
     # if Sigma <= 0 or Sigma >= 1: raise ValueError('Sigma')
-    # if mask is not None: contrasts_im1 = contrasts_im1[mask]
-    # contrasts_im1 /= contrasts_im1.max()
+    # if mask is not None: contrasts_im1 = contrasts_im1[mask, :]
+    # contrasts_im1 /= contrasts_im1.reshape(-1, len(p)).max(0)
     # contrasts_im1 -= 1
     # f = -1/(2*Sigma*Sigma)
     # alpha = exp(contrasts_im1*contrasts_im1*f)
-    # alpha_1 = 1 + exp(f)
     # chi_heterogeneous = alpha * chi
-    # chi_homogeneous = (alpha_1  - alpha) * chi
+    # chi_homogeneous = (1 + exp(f) - alpha) * chi
 
-def __compute_chi(im1, im2, p, freqs, M): #pylint: disable=invalid-name
+def __compute_chi(im1, im2, p, freqs, M):
     """
     Computes the contrast enhancement metric χ from [1] defined as:
 
@@ -547,7 +546,7 @@ def __compute_contrasts(im, g1s, g2s):
         g(x,y) = exp(-1/(2σ²(x²+y²))) - a Gaussian with σ_g1 given above or σ_g₂=M*σ_g₁
 
     where ⊗ is a convolution. All of these are fairly easily expanded to any number of dimensions by
-    using a higher-dimenional Gaussian kernel (actually a 1D Gaussian kernel is applied along each
+    using a higher-dimensional Gaussian kernel (actually a 1D Gaussian kernel is applied along each
     dimension).
 
     The g₁ and g₂ kernels are given for all σs along with the image.
@@ -557,7 +556,6 @@ def __compute_contrasts(im, g1s, g2s):
         Enhancement and Visual System Based Quantitative Evaluation", IEEE Transactions on Image
         Processing, 20(5):1211-1220.
     """
-    #from numpy import abs #pylint: disable=redefined-builtin
     from .util import correlate
     im = im.astype(float, copy=False)
     contrasts = empty(im.shape + (len(g1s),))
@@ -578,4 +576,3 @@ def __gaussian(sigma, radius):
     y = exp(-0.5 / (sigma * sigma) * x*x)
     y /= y.sum()
     return y
-
