@@ -3,10 +3,7 @@ Implements exact histogram equalization / matching. The underlying methods for e
 ordering are in other files in this module.
 """
 
-from numbers import Integral
-from numpy import floor, intp, empty, tile, repeat, linspace, lexsort
-
-def histeq_exact(im, h_dst=256, mask=None, return_fails=False, method='VA', **kwargs):
+def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stable=False, **kwargs): #pylint: disable=too-many-arguments
     """
     Like histeq except the histogram of the output image is exactly as given in h_dst. This is
     accomplished by strictly ordering all pixels based on other properties of the image. There is
@@ -115,31 +112,59 @@ def histeq_exact(im, h_dst=256, mask=None, return_fails=False, method='VA', **kw
 
     # Check arguments
     im, mask = check_image_mask_single_channel(im, mask)
-    shape, n, dt = im.shape, im.size, im.dtype
+    n = im.size
     if mask is not None: mask, n = mask.ravel(), mask.sum()
-    h_dst = tile(n/h_dst, h_dst) if isinstance(h_dst, Integral) else h_dst.ravel()*(n/h_dst.sum()) #pylint: disable=no-member
-    if len(h_dst) < 2: raise ValueError('h_dst')
+    h_dst = __check_h_dst(h_dst, n)
 
     ##### Create strict-orderable versions of image #####
     # These are frequently floating-point 'images' and/or images with an extra dimension giving a
     # 'tuple' of data for each pixel
     values = __calc_info(im, method, **kwargs)
-    del im
 
     ##### Assign strict ordering #####
-    idx, fails = __sort_pixels(values, shape, mask, return_fails)
+    idx, fails = __sort_pixels(values, im.shape, mask, return_fails, stable)
     del values, mask
 
     ##### Create the transform that is the size of the image but with sorted histogram values #####
-    # Since there could be fractional amounts, make sure they are added up and put somewhere
-    transform = __calc_transform(idx, h_dst, dt, n)
+    transform = calc_transform(h_dst, im.dtype, n, idx.size)
     del h_dst
 
     ##### Create the equalized image #####
-    out = transform.take(idx).reshape(shape)
+    out = transform.take(idx).reshape(im.shape)
 
     # Done
     return (out, fails) if return_fails else out
+
+def __check_h_dst(h_dst, n):
+    """
+    Check the h_dst argument and return it converted to a fleshed-out histogram for the given number
+    of pixels. Accepts integers or arrays.
+    """
+    # pylint: disable=invalid-name
+    from numbers import Integral
+    from numpy import tile, floor, intp
+    h_dst = tile(n/h_dst, h_dst) if isinstance(h_dst, Integral) else h_dst.ravel()*(n/h_dst.sum()) #pylint: disable=no-member
+    if len(h_dst) < 2: raise ValueError('h_dst')
+    H_whole = floor(h_dst).astype(intp, copy=False)
+    nw = H_whole.sum()
+    if n == nw:
+        h_dst = H_whole
+    else:
+        # Add up the fractional amounts and put somewhere
+        R = (h_dst-H_whole).argpartition(-(n-nw))[-(n-nw):]
+        h_dst = H_whole
+        h_dst[R] += 1
+        del R
+    return h_dst
+
+def calc_transform(h_dst, dt, n_mask, n_full):
+    """Create the transform that is the size of the image but with sorted histogram values."""
+    from numpy import zeros, repeat, linspace
+    from ..util import get_dtype_min_max
+    mn, mx = get_dtype_min_max(dt)
+    transform = zeros(n_full, dtype=dt)
+    transform[-n_mask:] = repeat(linspace(mn, mx, len(h_dst), dtype=dt), h_dst)
+    return transform
 
 def __calc_info(im, method, **kwargs):
     """
@@ -169,18 +194,22 @@ def __calc_info(im, method, **kwargs):
         raise ValueError('method')
     return calc_info(im, **kwargs)
 
-def __sort_pixels(values, shape, mask=None, return_fails=False):
+def __sort_pixels(values, shape, mask=None, return_fails=False, stable=False):
     """
-    Uses the values (pixels with extra data) to sort all of the pixels.
+    Uses the values (pixels with extra data) to sort all of the pixels. If stable is True than a
+    stable sort is performed, defaulting to False. However, if values represents 'tuples' of data
+    per pixel than lexsort is used which is always stable.
+
     Returns the indices of the sorted values and the number of fails (or None if not requested).
     """
     ##### Assign strict ordering #####
     if values.shape == shape:
         # Single value per pixel
         values = values.ravel()
-        sort_pass1 = values.argsort()
+        sort_pass1 = values.argsort(kind='stable' if stable else 'quicksort')
     else:
         # Tuple of values per pixel - need lexsort
+        from numpy import lexsort
         assert values.shape[:len(shape)] == shape
         values = values.reshape((-1, values.shape[-1]))
         sort_pass1 = lexsort(values.T, 0)
@@ -207,24 +236,3 @@ def __sort_pixels(values, shape, mask=None, return_fails=False):
 
     # Done
     return idx, fails
-
-def __calc_transform(idx, h_dst, dt, n):
-    """
-    Create the transform that is the size of the image but with sorted histogram values. Since
-    there could be fractional amounts, make sure they are added up and put somewhere.
-    """
-    # pylint: disable=invalid-name
-    from ..util import get_dtype_min_max
-    H_whole = floor(h_dst).astype(intp, copy=False)
-    nw = H_whole.sum()
-    if n == nw:
-        h_dst = H_whole
-    else:
-        R = (h_dst-H_whole).argpartition(-(n-nw))[-(n-nw):]
-        h_dst = H_whole
-        h_dst[R] += 1
-        del R
-    mn, mx = get_dtype_min_max(dt)
-    transform = empty(idx.size, dtype=dt)
-    transform[-n:] = repeat(linspace(mn, mx, len(h_dst), dtype=dt), h_dst)
-    return transform
