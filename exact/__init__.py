@@ -90,6 +90,11 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
         Method has been adapted to support 3D and/or anisotropic data. Use gamma parameter to
         control for anisotropicity.
 
+    OPTIMUM: Optimum Approach by Balado [9]
+        Doesn't use strict ordering but indirectly calculates the order. It turns out that it is
+        equivalent to arbitrary with stable sorting except during reconstruction (when passing
+        reconstruction=True).
+
     REFERENCES:
       1. Rolland JP, Vo V, Bloss B, and Abbey CK, 2000, "Fast algorithm for histogram
          matching applications to texture synthesis", Journal of Electronic Imaging 9(1):39–45.
@@ -105,6 +110,8 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
          the wavelet transform", IEEE Transcations on Image Processing, 16(9):2245-2250.
       8. Nikolova M and Steidl G, 2014, "Fast ordering algorithm for exact histogram specification",
          IEEE Transcations on Image Processing, 23(12):5274-5283.
+      9. Balado, Félix, 2018, "Optimum Exact Histogram Specification", IEEE International Conference
+         on Acoustics, Speech and Signal Processing.
 
     Additional references for each are available with their respective calc_info functions.
     """
@@ -115,6 +122,11 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
     n = im.size
     if mask is not None: mask, n = mask.ravel(), mask.sum()
     h_dst = __check_h_dst(h_dst, n)
+
+    # Deal with special methods
+    if method == 'optimum':
+        from .optimum import ehe
+        return ehe(im, h_dst, mask, return_fails, **kwargs)
 
     ##### Create strict-orderable versions of image #####
     # These are frequently floating-point 'images' and/or images with an extra dimension giving a
