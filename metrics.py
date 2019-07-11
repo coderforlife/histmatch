@@ -91,6 +91,9 @@ def distortion(im1, im2, mask=None):
     im2 = check_image_single_channel(im2)
     if im1.shape != im2.shape: raise ValueError('im1 and im2 must be the same shape')
     if mask is not None: im1, im2 = im1[mask], im2[mask]
+    # Need to avoid divide-by-zero
+    mask = im2 != 0
+    im1, im2 = im1[mask], im2[mask]
     return (im1 / im2).var()
 
 def count_differences(im1, im2, mask=None):
