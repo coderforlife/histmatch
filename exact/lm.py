@@ -83,7 +83,7 @@ def __get_filters(dt, order, ndim):
     # if dt.kind == 'u' and dt.itemsize <= 2 - pack filters tightly
     nbits = dt.itemsize*8
     vals, counts = unique(raw, return_counts=True)
-    extra_bits = ceil(log2(counts[:order])).astype(int) # perfect up to any reasonable value
+    extra_bits = [int(x) for x in ceil(log2(counts[:order]))] # perfect up to any reasonable value
     order -= 1 # order 1 is at index 0
     out = []
     # Don't start a new filter for just the central pixel (that is why it is order > 0)
