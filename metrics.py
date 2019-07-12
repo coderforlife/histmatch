@@ -439,7 +439,7 @@ def contrast_enhancement(im1, im2, mask=None, p=5, freqs=None, M=3): # pylint: d
     several values for p. To save re-computing the convolutions for each one, this function supports
     passing p as a sequence and all will be computed and returned.
 
-    Note that 'unresolvable' filters are not convolved to save time. This is Gaussians with σ<1/6.
+    Note that 'unresolvable' filters are not convolved to save time. This is Gaussians with σ<1/5.
     This is checked separately for the upper and lower bound filters and only saves a mild amount of
     time with the default parameters (up to ~10%).
 
@@ -511,7 +511,7 @@ def __compute_chi(im1, im2, p, freqs, M):
     # Precompute kernels
     f = log(1/(M*M)) / (1-M*M)
     sigma_g1s = 2 * f / (freqs*freqs)
-    sigma_g1s = sigma_g1s[sigma_g1s > 1/(6*M)] # remove completely unresolvable filters
+    sigma_g1s = sigma_g1s[sigma_g1s > 1/(5*M)] # remove completely unresolvable filters
     g1s = [__gaussian(sigma_g1) for sigma_g1 in sigma_g1s]
     g2s = [__gaussian(sigma_g2) for sigma_g2 in M*sigma_g1s]
 
@@ -568,7 +568,7 @@ def __compute_contrasts(im, g1s, g2s):
         surround = correlate(im_f, g_2)
         contrast = contrasts[..., i]
         subtract(center, surround, contrast)
-        #surround[surround == 0] = EPS
+        surround[surround == 0] = EPS
         contrast /= surround
         #abs(contrast, contrast) # norm will automatically take the absolute value for us
     return contrasts
