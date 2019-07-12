@@ -439,11 +439,10 @@ def contrast_enhancement(im1, im2, mask=None, p=5, freqs=None, M=3): # pylint: d
     several values for p. To save re-computing the convolutions for each one, this function supports
     passing p as a sequence and all will be computed and returned.
 
-    Note that 'unresolvable' filters are not convolved to save time. This is Gaussians with σ<1/6.
-    This is checked separately for the upper and lower bound filters and only saves a mild amount of
-    time with the default parameters (up to ~10%).
-
     NOTE: This does not currently take into account the requirement that χ_he ≈ χ_ho from eq 33-35.
+
+    When im1 and im2 are the same, 1.0 is returned. Larger numbers indicate an increase in contrast
+    while smaller numbers indicate a loss of contrast from im1 to im2.
 
     REFERENCES:
      1. Sen D and Pal S K, May 2011, "Automatic Exact Histogram Specification for Contrast
@@ -511,13 +510,11 @@ def __compute_chi(im1, im2, p, freqs, M):
     # Precompute kernels
     f = log(1/(M*M)) / (1-M*M)
     sigma_g1s = 2 * f / (freqs*freqs)
-    sigma_g1s = sigma_g1s[sigma_g1s > 1/(6*M)] # remove completely unresolvable filters
-    g1s = [__gaussian(sigma_g1) for sigma_g1 in sigma_g1s]
-    g2s = [__gaussian(sigma_g2) for sigma_g2 in M*sigma_g1s]
+    #sigma_g1s = sigma_g1s[sigma_g1s > 1/(6*M)] # remove completely unresolvable filters
 
     # Compute the contrasts for each frequency
-    contrasts_im1 = __compute_contrasts(im1, g1s, g2s)
-    contrasts_im2 = __compute_contrasts(im2, g1s, g2s)
+    contrasts_im1 = __compute_contrasts(im1, sigma_g1s, M*sigma_g1s)
+    contrasts_im2 = __compute_contrasts(im2, sigma_g1s, M*sigma_g1s)
 
     # Compute the l-p norm of the contrasts (along with scaling)
     P_inv = 1/(exp(-f)-exp(-f*M*M))
@@ -536,7 +533,7 @@ def __compute_chi(im1, im2, p, freqs, M):
     # Compute chi
     return (c_I_mean + contrasts_im2) / (c_I_mean + contrasts_im1)
 
-def __compute_contrasts(im, g1s, g2s):
+def __compute_contrasts(im, sigma_g1s, sigma_g2s):
     """
     Compute the contrasts for measuring contrast enhancement. This computes c_σ_g₁ from [1] for each
     pixel across all of the frequencies, which is defined as:
@@ -560,25 +557,58 @@ def __compute_contrasts(im, g1s, g2s):
         Enhancement and Visual System Based Quantitative Evaluation", IEEE Transactions on Image
         Processing, 20(5):1211-1220.
     """
-    from .util import correlate, EPS
-    im_f = im.astype(float, copy=False)
-    contrasts = empty(im.shape + (len(g1s),))
-    for i, (g_1, g_2) in enumerate(zip(g1s, g2s)):
-        center = im_f if g_1.size == 1 else correlate(im_f, g_1)
-        surround = correlate(im_f, g_2)
+    from scipy.ndimage import fourier_gaussian
+
+    contrasts = empty(im.shape + (len(sigma_g1s),))
+
+    rfftn, irfftn, empty_aligned = __get_rfft()
+    im = rfftn(im.astype(float, copy=False))
+    temp = empty_aligned(im.shape, im.dtype)
+
+    for i, (sigma_g1, sigma_g2) in enumerate(zip(sigma_g1s, sigma_g2s)):
+        # Using real-space correlations  (also need to remove rfftn() above but keep the astype)
+        # The real-space correlations produce lower values
+        #from .util import correlate, EPS
+        #from scipy.ndimage.filters import _gaussian_kernel1d as gaussian1d # could cache
+        #g_1 = gaussian1d(sigma_g1, 0, int(3 * sigma_g1 + 0.5))
+        #g_2 = gaussian1d(sigma_g2, 0, int(3 * sigma_g2 + 0.5))
+        #center = im if g_1.size == 1 else correlate(im, g_1)
+        #surround = correlate(im, g_2, output=temp)
+        #surround[surround == 0] = EPS
+
+        center = irfftn(fourier_gaussian(im, sigma_g1, im.shape[-1], output=temp))
+        surround = irfftn(fourier_gaussian(im, sigma_g2, im.shape[-1], output=temp))
+
         contrast = contrasts[..., i]
         subtract(center, surround, contrast)
-        surround[surround == 0] = EPS
         contrast /= surround
         #abs(contrast, contrast) # norm will automatically take the absolute value for us
     return contrasts
 
 @lru_cache(maxsize=None)
-def __gaussian(sigma):
-    """Creates a 1D Gaussian kernel for the given sigma that is truncated at the given radius."""
-    # pylint: disable=invalid-name
-    radius = int(3 * sigma + 0.5)
-    x = arange(-radius, radius+1)
-    y = exp(-0.5 / (sigma * sigma) * x*x)
-    y /= y.sum()
-    return y
+def __get_rfft():
+    """
+    Gets the rfftn, irfftn, and empty_aligned functions either from pyfftw or numpy depending on
+    what is available. For pyfftw, also sets up lots of options to increase its speed.
+    """
+    try:
+        import pyfftw
+        import os
+        pyfftw.interfaces.cache.enable()
+        pyfftw.interfaces.cache.set_keepalive_time(5)
+        if pyfftw.config.NUM_THREADS == 1:
+            pyfftw.config.NUM_THREADS = \
+                len(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else os.cpu_count()
+        pyfftw.config.PLANNER_EFFORT = 'FFTW_MEASURE'
+
+        def rfftn(*args, **kwargs):
+            return pyfftw.interfaces.numpy_fft.rfftn(*args, overwrite_input=True, **kwargs)
+        def irfftn(*args, **kwargs):
+            return pyfftw.interfaces.numpy_fft.irfftn(*args, overwrite_input=True, **kwargs)
+        empty_aligned = pyfftw.empty_aligned
+
+    except ImportError:
+        from numpy.fft import rfftn, irfftn
+        empty_aligned = empty
+
+    return rfftn, irfftn, empty_aligned
