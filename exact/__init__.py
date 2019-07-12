@@ -3,8 +3,6 @@ Implements exact histogram equalization / matching. The underlying methods for e
 ordering are in other files in this module.
 """
 
-from numpy import zeros
-
 def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stable=False, **kwargs): #pylint: disable=too-many-arguments
     """
     Like histeq except the histogram of the output image is exactly as given in h_dst. This is
@@ -121,8 +119,7 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
 
     # Check arguments
     im, mask = check_image_mask_single_channel(im, mask)
-    n = im.size
-    if mask is not None: mask, n = mask.ravel(), mask.sum()
+    n = im.size if mask is None else mask.sum()
     h_dst = __check_h_dst(h_dst, n)
 
     ##### Create strict-orderable versions of image #####
@@ -133,15 +130,14 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
 
     ##### Assign strict ordering #####
     idx, fails = __sort_pixels(values, im.shape, mask, return_fails, stable)
-    del values, mask
+    del values
 
     ##### Create the transform that is the size of the image but with sorted histogram values #####
-    transform = calc_transform(h_dst, im.dtype, n, idx.size)
+    transform = __calc_transform(h_dst, im.dtype, n, idx.size)
     del h_dst
 
     ##### Create the equalized image #####
-    out = zeros(im.shape, im.dtype)
-    out.put(idx, transform)
+    out = __apply_transform(idx, transform, im.shape, mask)
 
     # Done
     return (out, fails) if return_fails else out
@@ -167,15 +163,6 @@ def __check_h_dst(h_dst, n):
         h_dst[R] += 1
         del R
     return h_dst
-
-def calc_transform(h_dst, dt, n_mask, n_full):
-    """Create the transform that is the size of the image but with sorted histogram values."""
-    from numpy import repeat, linspace
-    from ..util import get_dtype_min_max
-    mn, mx = get_dtype_min_max(dt)
-    transform = zeros(n_full, dtype=dt)
-    transform[-n_mask:] = repeat(linspace(mn, mx, len(h_dst), dtype=dt), h_dst)
-    return transform
 
 def __calc_info(im, method, **kwargs):
     """
@@ -222,33 +209,47 @@ def __sort_pixels(values, shape, mask=None, return_fails=False, stable=False):
         # Already sorted
         from ..util import prod
         assert values.size == prod(shape)
+        if mask is not None: values = values[mask.ravel()]
         idx = values
     elif values.shape == shape:
         # Single value per pixel
-        values = values.ravel()
+        values = values.ravel() if mask is None else values[mask]
         idx = values.argsort(kind='stable' if stable else 'quicksort')
     else:
         # Tuple of values per pixel - need lexsort
         from numpy import lexsort
         assert values.shape[:len(shape)] == shape
-        values = values.reshape((-1, values.shape[-1]))
+        values = values.reshape((-1, values.shape[-1])) if mask is None else values[mask]
         idx = lexsort(values.T, 0)
 
+    # Done if not calculating failures
+    if not return_fails: return idx, None
+
     # Calculate the number of sort failures
-    fails = None
-    if return_fails:
-        values_sorted = values[idx]
-        not_equals = values_sorted[1:] != values_sorted[:-1]
-        del values_sorted
-        if not_equals.ndim == 2: not_equals = not_equals.any(1) # lexsorted
-        if mask is not None: not_equals = not_equals[mask[:-1]]
-        fails = not_equals.size - not_equals.sum()
-        del not_equals
+    values_sorted = values[idx]
+    not_equals = values_sorted[1:] != values_sorted[:-1]
+    del values_sorted
+    if not_equals.ndim == 2: not_equals = not_equals.any(1) # lexsorted
+    return idx, not_equals.size - not_equals.sum()
 
-    ##### Handle the mask #####
+def __calc_transform(h_dst, dt, n_mask, n_full):
+    """Create the transform that is the size of the image but with sorted histogram values."""
+    from numpy import zeros, repeat, linspace
+    from ..util import get_dtype_min_max
+    mn, mx = get_dtype_min_max(dt)
+    transform = zeros(n_full, dtype=dt)
+    transform[-n_mask:] = repeat(linspace(mn, mx, len(h_dst), dtype=dt), h_dst)
+    return transform
+
+def __apply_transform(idx, transform, shape, mask=None):
+    """Apply a transform with the strict ordering in idx."""
+    from numpy import zeros, empty, place
     if mask is not None:
-        idx[~mask] = 0 #pylint: disable=invalid-unary-operand-type
-        idx[mask] = idx[mask].argsort()
-
-    # Done
-    return idx, fails
+        mask_idx = empty(idx.size, transform.dtype)
+        mask_idx.put(idx, transform)
+        out = zeros(shape, transform.dtype)
+        place(out, mask, mask_idx)
+    else:
+        out = empty(shape, transform.dtype)
+        out.put(idx, transform)
+    return out
