@@ -81,7 +81,17 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
 
         Method has been adapted to support 3D data. Does not support anisotropic data.
 
-    VA: Variational Approach by Nikolova, Wen and Chan [8]
+    SWA: Stationary Wavelet Approach
+        This is a derivation of the WA that uses the stationary wavelet transform and does not
+        have the additional sorting steps. This is likely (or similar to) the method used by most of
+        the papers referencing [7] such as [9].
+
+        Set bilateral_filter=(3,1,1) to reproduce [10]. Can also set detail_magnitude=False to
+        disable getting magnitude of edges which might be more accurate to various papers by further
+        from [7]. Can adjust the number of levels with nlevels (defaults to 2) and the kernel used
+        (defaults to 'haar').
+
+    VA: Variational Approach by Nikolova, Wen and Chan [9]
         This attempts to reconstruct the original real-valued version of the image and thus is a
         continuous-valued version of the image which can be strictly ordered. This has several
         parameters including niters, beta, alpha_1, alpha_2, and gamma to control how the
@@ -90,7 +100,7 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
         Method has been adapted to support 3D and/or anisotropic data. Use gamma parameter to
         control for anisotropicity.
 
-    OPTIMUM: Optimum Approach by Balado [9]
+    OPTIMUM: Optimum Approach by Balado [10]
         It turns out that it is equivalent to arbitrary with stable sorting except during
         reconstruction (when passing reconstruction=True) in which case minor changes are made to
         the order to be optimal.
@@ -108,9 +118,14 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
          Transcations on Image Processing 15(5):1143-1152.
       7. Wan Y and Shi D, 2007, "Joint exact histogram specification and image enhancement through
          the wavelet transform", IEEE Transcations on Image Processing, 16(9):2245-2250.
-      8. Nikolova M and Steidl G, 2014, "Fast ordering algorithm for exact histogram specification",
+      8. R A and Wilscu M, 2008, "Enhancing Contrast in Color Images Using Bilateral Filter and
+         Histogram Equalization Using Wavelet Coefficients", 2008 Second International Conference on
+         Future Generation Communication and Networking Symposia.
+
+
+      9. Nikolova M and Steidl G, 2014, "Fast ordering algorithm for exact histogram specification",
          IEEE Transcations on Image Processing, 23(12):5274-5283.
-      9. Balado, Félix, 2018, "Optimum Exact Histogram Specification", IEEE International Conference
+     10. Balado, Félix, 2018, "Optimum Exact Histogram Specification", IEEE International Conference
          on Acoustics, Speech and Signal Processing.
 
     Additional references for each are available with their respective calc_info functions.
@@ -186,6 +201,8 @@ def __calc_info(im, method, **kwargs):
         from .lm import calc_info
     elif method == 'wa':
         from .wa import calc_info
+    elif method == 'swa':
+        from .swa import calc_info
     elif method == 'va':
         from .va import calc_info
     elif method == 'optimum':

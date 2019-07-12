@@ -3,7 +3,8 @@
 from numpy import nan, inf
 import hist.exact.va as va
 
-METHODS = ('classic', 'arbitrary', 'rand', 'na', 'nv', 'gl', 'lc', 'lm', 'wa', 'va', 'optimum')
+METHODS = ('classic', 'arbitrary', 'rand', 'na', 'nv', 'gl', 'lc', 'lm', 'wa', 'swa', 'va',
+           'optimum')
 
 def add_method_arg(parser):
     """Add the method argument to an argument parser object."""
