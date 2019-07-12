@@ -17,7 +17,7 @@ def metric_battery(original, method, csv=False, plot=False, **kwargs):
     * If there is a reconstruction kwarg provided its value is ignored and it is set to False during
     the equalization and True during the reconstruction.
     """
-    # pylint: disable=too-many-locals
+    # pylint: disable=too-many-locals, too-many-statements
     hist_orig = imhist(original)
     if method == 'classic':
         enhanced = histeq(original, 256, **kwargs)
@@ -49,13 +49,18 @@ def metric_battery(original, method, csv=False, plot=False, **kwargs):
     contrast_enhancement_ = contrast_enhancement(original, enhanced)
 
     n_diffs = count_differences(original, recon)
-    psnr_ = psnr(original, recon)
-    ssim_ = ssim(original, recon)
+
+    psnr_oe = psnr(original, enhanced)
+    psnr_or = psnr(original, recon)
+
+    ssim_oe = ssim(original, enhanced)
+    ssim_or = ssim(original, recon)
 
     if csv:
         print(cpp_orig, cpp_enh, eme_orig, eme_enh, sdme_orig, sdme_enh,
-              fails_forward, fails_reverse, contrast_enhancement_, distortion_oe, distortion_or,
-              n_diffs, psnr_, ssim_, sep=',')
+              fails_forward, fails_reverse,
+              contrast_enhancement_, distortion_oe, psnr_oe, ssim_oe,
+              n_diffs, distortion_or, psnr_or, ssim_or, sep=',')
     else:
         print('Image shape: %s'%(original.shape,))
         print('Original and enhanced image:')
@@ -65,13 +70,16 @@ def metric_battery(original, method, csv=False, plot=False, **kwargs):
         if method != 'classic':
             print('During enhancement and reconstruction there were %d and %d fails'%
                   (fails_forward, fails_reverse))
-        print('Contrast Enhancement of: %.2f'%contrast_enhancement_)
-        print('Enhancement caused a distortion of: %.2f'%distortion_oe)
+        print('Enhancement:')
+        print('  Contrast:   %.2f'%contrast_enhancement_)
+        print('  Distortion: %.5f'%distortion_oe)
+        print('  PSNR:       %.2f dB'%psnr_oe)
+        print('  SSIM:       %.5f'%ssim_oe)
         print('Reconstruction:')
-        print('  Distortion: %.5f'%distortion_or)
         print('  Num Diffs:  %.2f%%'%(n_diffs/original.size))
-        print('  PSNR:       %.2f dB'%psnr_)
-        print('  SSIM:       %.5f'%ssim_)
+        print('  Distortion: %.5f'%distortion_or)
+        print('  PSNR:       %.2f dB'%psnr_or)
+        print('  SSIM:       %.5f'%ssim_or)
 
     if plot:
         import matplotlib.pylab as plt
