@@ -439,6 +439,10 @@ def contrast_enhancement(im1, im2, mask=None, p=5, freqs=None, M=3): # pylint: d
     several values for p. To save re-computing the convolutions for each one, this function supports
     passing p as a sequence and all will be computed and returned.
 
+    Note that 'unresolvable' filters are not convolved to save time. This is Gaussians with σ<1/6.
+    This is checked separately for the upper and lower bound filters and only saves a mild amount of
+    time with the default parameters (up to ~10%).
+
     NOTE: This does not currently take into account the requirement that χ_he ≈ χ_ho from eq 33-35.
 
     REFERENCES:
@@ -507,9 +511,9 @@ def __compute_chi(im1, im2, p, freqs, M):
     # Precompute kernels
     f = log(1/(M*M)) / (1-M*M)
     sigma_g1s = 2 * f / (freqs*freqs)
-    radius = int(3 * M*sigma_g1s.max() + 0.5)
-    g1s = [__gaussian(sigma_g1, radius) for sigma_g1 in sigma_g1s]
-    g2s = [__gaussian(sigma_g2, radius) for sigma_g2 in M*sigma_g1s]
+    sigma_g1s = sigma_g1s[sigma_g1s > 1/(6*M)] # remove completely unresolvable filters
+    g1s = [__gaussian(sigma_g1) for sigma_g1 in sigma_g1s]
+    g2s = [__gaussian(sigma_g2) for sigma_g2 in M*sigma_g1s]
 
     # Compute the contrasts for each frequency
     contrasts_im1 = __compute_contrasts(im1, g1s, g2s)
@@ -556,11 +560,12 @@ def __compute_contrasts(im, g1s, g2s):
         Enhancement and Visual System Based Quantitative Evaluation", IEEE Transactions on Image
         Processing, 20(5):1211-1220.
     """
-    from .util import correlate
-    im = im.astype(float, copy=False)
+    from .util import correlate, EPS
+    im_f = im.astype(float, copy=False)
     contrasts = empty(im.shape + (len(g1s),))
     for i, (g_1, g_2) in enumerate(zip(g1s, g2s)):
-        center, surround = correlate(im, g_1), correlate(im, g_2)
+        center = im_f if g_1.size == 1 else correlate(im_f, g_1)
+        surround = correlate(im_f, g_2)
         contrast = contrasts[..., i]
         subtract(center, surround, contrast)
         #surround[surround == 0] = EPS
@@ -569,9 +574,10 @@ def __compute_contrasts(im, g1s, g2s):
     return contrasts
 
 @lru_cache(maxsize=None)
-def __gaussian(sigma, radius):
+def __gaussian(sigma):
     """Creates a 1D Gaussian kernel for the given sigma that is truncated at the given radius."""
     # pylint: disable=invalid-name
+    radius = int(3 * sigma + 0.5)
     x = arange(-radius, radius+1)
     y = exp(-0.5 / (sigma * sigma) * x*x)
     y /= y.sum()
