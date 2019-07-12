@@ -3,6 +3,8 @@ Implements exact histogram equalization / matching. The underlying methods for e
 ordering are in other files in this module.
 """
 
+from numpy import zeros
+
 def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stable=False, **kwargs): #pylint: disable=too-many-arguments
     """
     Like histeq except the histogram of the output image is exactly as given in h_dst. This is
@@ -91,9 +93,9 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
         control for anisotropicity.
 
     OPTIMUM: Optimum Approach by Balado [9]
-        Doesn't use strict ordering but indirectly calculates the order. It turns out that it is
-        equivalent to arbitrary with stable sorting except during reconstruction (when passing
-        reconstruction=True).
+        It turns out that it is equivalent to arbitrary with stable sorting except during
+        reconstruction (when passing reconstruction=True) in which case minor changes are made to
+        the order to be optimal.
 
     REFERENCES:
       1. Rolland JP, Vo V, Bloss B, and Abbey CK, 2000, "Fast algorithm for histogram
@@ -123,14 +125,10 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
     if mask is not None: mask, n = mask.ravel(), mask.sum()
     h_dst = __check_h_dst(h_dst, n)
 
-    # Deal with special methods
-    if method == 'optimum':
-        from .optimum import ehe
-        return ehe(im, h_dst, mask, return_fails, **kwargs)
-
     ##### Create strict-orderable versions of image #####
     # These are frequently floating-point 'images' and/or images with an extra dimension giving a
     # 'tuple' of data for each pixel
+    if method == 'optimum': kwargs['h_dst'] = h_dst # optimum needs the h_dst data
     values = __calc_info(im, method, **kwargs)
 
     ##### Assign strict ordering #####
@@ -142,7 +140,8 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
     del h_dst
 
     ##### Create the equalized image #####
-    out = transform.take(idx).reshape(im.shape)
+    out = zeros(im.shape, im.dtype)
+    out.put(idx, transform)
 
     # Done
     return (out, fails) if return_fails else out
@@ -171,7 +170,7 @@ def __check_h_dst(h_dst, n):
 
 def calc_transform(h_dst, dt, n_mask, n_full):
     """Create the transform that is the size of the image but with sorted histogram values."""
-    from numpy import zeros, repeat, linspace
+    from numpy import repeat, linspace
     from ..util import get_dtype_min_max
     mn, mx = get_dtype_min_max(dt)
     transform = zeros(n_full, dtype=dt)
@@ -202,6 +201,8 @@ def __calc_info(im, method, **kwargs):
         from .wa import calc_info
     elif method == 'va':
         from .va import calc_info
+    elif method == 'optimum':
+        from .optimum import calc_info
     else:
         raise ValueError('method')
     return calc_info(im, **kwargs)
@@ -209,27 +210,34 @@ def __calc_info(im, method, **kwargs):
 def __sort_pixels(values, shape, mask=None, return_fails=False, stable=False):
     """
     Uses the values (pixels with extra data) to sort all of the pixels. If stable is True than a
-    stable sort is performed, defaulting to False. However, if values represents 'tuples' of data
-    per pixel than lexsort is used which is always stable.
+    stable sort is performed, defaulting to False. However, if values represent 'tuples' of data
+    per pixel than lexsort is used which is always stable. Additionally, 1D data is assumed to be
+    already sorted in which case this simply calculates fails if requested (and likely to be 0) and
+    applies the mask if necessary.
 
     Returns the indices of the sorted values and the number of fails (or None if not requested).
     """
     ##### Assign strict ordering #####
-    if values.shape == shape:
+    if values.ndim == 1:
+        # Already sorted
+        from ..util import prod
+        assert values.size == prod(shape)
+        idx = values
+    elif values.shape == shape:
         # Single value per pixel
         values = values.ravel()
-        sort_pass1 = values.argsort(kind='stable' if stable else 'quicksort')
+        idx = values.argsort(kind='stable' if stable else 'quicksort')
     else:
         # Tuple of values per pixel - need lexsort
         from numpy import lexsort
         assert values.shape[:len(shape)] == shape
         values = values.reshape((-1, values.shape[-1]))
-        sort_pass1 = lexsort(values.T, 0)
+        idx = lexsort(values.T, 0)
 
     # Calculate the number of sort failures
     fails = None
     if return_fails:
-        values_sorted = values[sort_pass1]
+        values_sorted = values[idx]
         not_equals = values_sorted[1:] != values_sorted[:-1]
         del values_sorted
         if not_equals.ndim == 2: not_equals = not_equals.any(1) # lexsorted
@@ -237,14 +245,10 @@ def __sort_pixels(values, shape, mask=None, return_fails=False, stable=False):
         fails = not_equals.size - not_equals.sum()
         del not_equals
 
-    # Final sort to establish strict ordering
-    idx = sort_pass1.argsort()
-    del sort_pass1
-
     ##### Handle the mask #####
     if mask is not None:
         idx[~mask] = 0 #pylint: disable=invalid-unary-operand-type
-        idx[mask] = idx[mask].argsort().argsort()
+        idx[mask] = idx[mask].argsort()
 
     # Done
     return idx, fails
