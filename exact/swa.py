@@ -59,7 +59,7 @@ def calc_info(im, bilateral_filter=False, detail_magnitude=True, nlevels=2, kern
     from ..util import get_im_min_max
 
     if bilateral_filter:
-        args = bilateral_filter if isinstance(bilateral_filter, tuple) else (None, None, 1)
+        args = (None, None, 1) if bilateral_filter is True else bilateral_filter
         from .__bilateral import bilateral_filter
         im = bilateral_filter(im.astype(float, copy=False), *args)
 

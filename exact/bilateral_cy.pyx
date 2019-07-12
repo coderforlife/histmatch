@@ -28,7 +28,7 @@ def get_user_data(double[::1] spatial, double scale, double[::1] intensity_lut=N
     user_data[0].scale = scale
     user_data[0].spatial = &spatial[0]
     user_data[0].intensity_lut = NULL if intensity_lut is None else &intensity_lut[0]
-    PyCapsule_New(user_data, NULL, bilateral_filter_user_data_destructor)
+    return PyCapsule_New(user_data, NULL, bilateral_filter_user_data_destructor)
 
 cdef void bilateral_filter_user_data_destructor(object obj):
     """Free the user data pointer."""
