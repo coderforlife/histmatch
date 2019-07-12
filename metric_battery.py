@@ -6,12 +6,16 @@ from . import imhist, histeq, histeq_exact
 from .metrics import (contrast_per_pixel, enhancement_measurement, distortion,
                       contrast_enhancement, count_differences, psnr, ssim)
 
-def metric_battery(original, method, plot=False, **kwargs):
+def metric_battery(original, method, csv=False, plot=False, **kwargs):
     """
     Runs a battery of metrics while historgram equalizing the original image and then attempting to
     reconstruct the original image using the given method (either 'classic' or one of the methods
-    supported by histeq_exact). If plot is True plots of the images and their histograms is shown.
-    All kwargs are passed onto the histeq method. All results are printed out.
+    supported by histeq_exact). If csv is True then data is printed as CSV data with no header. If
+    plot is True plots of the images and their histograms is shown. All kwargs are passed onto the
+    histeq method*. All results are printed out.
+
+    * If there is a reconstruction kwarg provided its value is ignored and it is set to False during
+    the equalization and True during the reconstruction.
     """
     # pylint: disable=too-many-locals
     hist_orig = imhist(original)
@@ -22,7 +26,9 @@ def metric_battery(original, method, plot=False, **kwargs):
     else:
         kwargs['method'] = method
         kwargs['return_fails'] = True
+        if 'reconstruction' in kwargs: kwargs['reconstruction'] = False
         enhanced, fails_forward = histeq_exact(original, 256, **kwargs)
+        if 'reconstruction' in kwargs: kwargs['reconstruction'] = True
         recon, fails_reverse = histeq_exact(enhanced, hist_orig, **kwargs)
 
     cpp_orig = contrast_per_pixel(original)
@@ -46,21 +52,26 @@ def metric_battery(original, method, plot=False, **kwargs):
     psnr_ = psnr(original, recon)
     ssim_ = ssim(original, recon)
 
-    print('Image shape: %s'%(original.shape,))
-    print('Original and enhanced image:')
-    print('  Contrast-per-pixel: %.2f %.2f (%.2f%%)'%(cpp_orig, cpp_enh, cpp_ratio*100))
-    print('  EME:                %.2f %.2f (%.2f%%)'%(eme_orig, eme_enh, eme_ratio*100))
-    print('  SDME:               %.2f %.2f (%.2f%%)'%(sdme_orig, sdme_enh, sdme_ratio*100))
-    if method != 'classic':
-        print('During enhancement and reconstruction there were %d and %d fails'%
-              (fails_forward, fails_reverse))
-    print('Contrast Enhancement of: %.2f'%contrast_enhancement_)
-    print('Enhancement caused a distortion of: %.2f'%distortion_oe)
-    print('Reconstruction:')
-    print('  Distortion: %.5f'%distortion_or)
-    print('  Num Diffs:  %.2f%%'%(n_diffs/original.size))
-    print('  PSNR:       %.2f dB'%psnr_)
-    print('  SSIM:       %.5f'%ssim_)
+    if csv:
+        print(cpp_orig, cpp_enh, eme_orig, eme_enh, sdme_orig, sdme_enh,
+              fails_forward, fails_reverse, contrast_enhancement_, distortion_oe, distortion_or,
+              n_diffs, psnr_, ssim_, sep=',')
+    else:
+        print('Image shape: %s'%(original.shape,))
+        print('Original and enhanced image:')
+        print('  Contrast-per-pixel: %5.2f %5.2f (%6.2f%%)'%(cpp_orig, cpp_enh, cpp_ratio*100))
+        print('  EME:                %5.2f %5.2f (%6.2f%%)'%(eme_orig, eme_enh, eme_ratio*100))
+        print('  SDME:               %5.2f %5.2f (%6.2f%%)'%(sdme_orig, sdme_enh, sdme_ratio*100))
+        if method != 'classic':
+            print('During enhancement and reconstruction there were %d and %d fails'%
+                  (fails_forward, fails_reverse))
+        print('Contrast Enhancement of: %.2f'%contrast_enhancement_)
+        print('Enhancement caused a distortion of: %.2f'%distortion_oe)
+        print('Reconstruction:')
+        print('  Distortion: %.5f'%distortion_or)
+        print('  Num Diffs:  %.2f%%'%(n_diffs/original.size))
+        print('  PSNR:       %.2f dB'%psnr_)
+        print('  SSIM:       %.5f'%ssim_)
 
     if plot:
         import matplotlib.pylab as plt
@@ -88,14 +99,16 @@ def main():
     parser = argparse.ArgumentParser(description='Perform histogram equalization on an image')
     parser.add_argument('input', help='input image file')
     cui.add_method_arg(parser)
+    parser.add_argument('--csv', action='store_true', help='output data as CSV with no header')
     parser.add_argument('--plot', action='store_true',
                         help='plot original, enhanced, and reconstructed images with histograms')
-
+    cui.add_kwargs_arg(parser)
     args = parser.parse_args()
 
     im = imageio.imread(args.input)
     if im.ndim != 2: im = im.mean(2)
-    metric_battery(im, args.method, plot=args.plot)
+    print(args.input, end=',' if args.csv else '\n')
+    metric_battery(im, args.method, csv=args.csv, plot=args.plot, **dict(args.kwargs))
 
 if __name__ == "__main__":
     main()
