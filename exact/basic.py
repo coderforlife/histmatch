@@ -94,11 +94,11 @@ def calc_info_local_contrast(im, order=6):
         max_tmp -= min_tmp
         out[..., layer] |= max_tmp << shift
         shift += bpp
-        if shift > 64:
+        if shift >= 64:
             layer += 1
             shift = 0
 
-    out[..., -1] |= im << shift
+    out[..., -1] |= im.astype(dst_type) << shift
     return out[..., 0] if layer == 0 else out
 
 def calc_info_neighborhood_avg(im, size=3, invert=False):

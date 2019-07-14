@@ -67,10 +67,10 @@ def __get_total_neighbors(shape):
     # Go through pixels that are along planes/edges/corners
     # The number of neighbors is missing n_axes+1 axes
     n_axes = arange(ndim)
-    n_neighbors = core_n_neighbors - (2**n_axes * 3**(ndim-n_axes-1)).cumsum()
+    n_neighbors = core_n_neighbors - ((1<<n_axes) * 3**(ndim-n_axes-1)).cumsum()
     for inds in axes_combinations(ndim):
         n_pixels = core_n_pixels // prod(shape[i]-2 for i in inds)
-        count += 2**len(inds) * n_pixels * n_neighbors[len(inds)-1]
+        count += (1<<len(inds)) * n_pixels * n_neighbors[len(inds)-1]
 
     return count
 
