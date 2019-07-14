@@ -85,7 +85,7 @@ def get_uint_dtype_fit(nbits):
     """
     Gets the uint dtype string that describes the type that has at least the given number of bits.
     """
-    return 'u' +str(max(2**(log2i(nbits)-3), 1))
+    return 'u' +str(max(1 << (log2i(nbits)-3), 1))
 
 
 ##### Data Type Conversions #####
@@ -211,7 +211,7 @@ def correlate(im, weights, output=None, mode='reflect', cval=0.0):
 
     NOTE: SciPy always converts the weights to float64 and does all of the math as float64 and thus
     correletions/convolutions with (u)int64 operations may lose lowest signficant digits since a
-    float64 cannot represent every integer above 2**52.
+    float64 cannot represent every integer above 2^52.
     """
     from scipy.ndimage.filters import correlate, correlate1d # pylint: disable=redefined-outer-name
     from scipy.ndimage._ni_support import _get_output
