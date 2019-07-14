@@ -104,7 +104,8 @@ def main():
     import imageio
     import hist._cmd_line_util as cui
 
-    parser = argparse.ArgumentParser(description='Perform histogram equalization on an image')
+    parser = argparse.ArgumentParser(
+        description='Calculate a series of metrics on the histogram equalization on an image')
     parser.add_argument('input', help='input image file')
     cui.add_method_arg(parser)
     parser.add_argument('--csv', action='store_true', help='output data as CSV with no header')
