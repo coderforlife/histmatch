@@ -67,7 +67,6 @@ def calc_info_local_contrast(im, order=6):
     """
     # this uses scipy's 'reflect' mode (duplicated edge) and thus has no effect
     from scipy.ndimage import maximum_filter, minimum_filter
-    from ..util import generate_disks
     im = as_unsigned(im)
     disks = generate_disks(order, im.ndim)
 
@@ -127,8 +126,8 @@ def calc_info_neighborhood_avg(im, size=3, invert=False):
          Proceedings of the Second Canadian Conference on Computer and Robot Vision.
     """
     # this uses scipy's 'reflect' mode (duplicated edge) ([2] says this should be constant-0)
-    from numpy import ones, uint32, subtract
-    from ..util import correlate, get_dtype_max, FLOAT64_NMANT
+    from numpy import ones, subtract
+    from ..util import FLOAT64_NMANT
 
     # Deal with arguments
     if size < 3 or size % 2 != 1: raise ValueError('size')
@@ -147,7 +146,7 @@ def calc_info_neighborhood_avg(im, size=3, invert=False):
         out[..., 1] = im # the original image is still part of this
     else:
         # Compact the results
-        out = correlate(im, ones(size), empty(im.shape, uint64 if nbits > 31 else uint32))
+        out = correlate(im, ones(size), empty(im.shape, uint64))
         if invert:
             subtract(n_neighbors * get_dtype_max(dt), out, out)
         out |= im.astype(out.dtype) << shift # the original image is still part of this
