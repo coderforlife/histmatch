@@ -5,10 +5,17 @@ algorithm by R and Wilscy. Without bilateral filtering this is likely the algori
 Nikolova et al when trying to implement the algorithm by Wan and Shi.
 """
 
+from itertools import product
+
+from numpy import asarray, empty
+
 def calc_info(im, bilateral_filter=False, detail_magnitude=True, nlevels=2, kernel='haar'):
     """
     Assign strict ordering to image pixels. The returned value is the same shape but with an extra
-    dimension for the results of the additional filters. This stack needs to be lex-sorted.
+    dimension for the results of the additional filters. This stack needs to be lex-sorted. The
+    results are compacted when possible (only when using Haar kernel and image is 8- or 16-bit
+    integral type) to increase speed of the future lexsort but they can never be fully compacted to
+    avoid the need of lexsort entirely.
 
     This calculates the extra information using the stationary wavelet transform. The first piece of
     data is the image gray values. And then, for each wavelet level, the approximate coefficients
@@ -24,7 +31,7 @@ def calc_info(im, bilateral_filter=False, detail_magnitude=True, nlevels=2, kern
     Besides adjusting the number of levels, the wavelet kernel can be set as well. It defaults to
     'haar' as used in [1,2] and likely in all other papers even if not explicit. As stated in [1,3]
     the default number of levels is 2. Other papers are not explicit about this but likely used 1 or
-    2 levels. Any kernel supported by pywt is allowed.
+    2 levels. Any kernel supported by pyWavelet is allowed.
 
     The detail coefficients can optionally be used as magnitudes so that a strong edge in any
     direction sorts higher. The default is to not do this as no paper makes this explicit although
@@ -32,10 +39,16 @@ def calc_info(im, bilateral_filter=False, detail_magnitude=True, nlevels=2, kern
 
     To reproduce [2] this can also apply a bilateral filtering to the image before calculating the
     coefficients. The parameter bilateral_filter can be set to True to use the default options for
-    bilaterial_filter or it can be a 3-element tuple to set the size, sigma_r, and sigma_d
-    parameters of bilateral_filter.
+    bilateral_filter or it can be a 3-element tuple to set the size, sigma_r, and sigma_d
+    parameters of bilateral_filter. To completely reproduce [2] this needs to be set to (3,1,1).
 
     This implementation supports 3D data, however only isotropic data is supported.
+
+    Note that this implementation doesn't use pyWavelet's swt2/swtn functions since those functions:
+     * Restrict the image shapes to be multiples of 2**nlevels
+     * Are slower (about half as fast when compacting, +10% when not compacting)
+    This still uses pyWavelet for the determining the filter banks when not using the default Haar
+    kernel (which itself is slightly modified to reduce numerical instability).
 
     REFERENCES
       1. Wan Y and Shi D, 2007, "Joint exact histogram specification and image enhancement through
@@ -50,55 +63,122 @@ def calc_info(im, bilateral_filter=False, detail_magnitude=True, nlevels=2, kern
       5. Jung S-W, 2014, "Exact Histogram Specification Considering the Just Noticeable Difference",
          IEIE Transactions on Smart Processing and Computing, 3(2):52-58.
     """
-    # returns stack always
-    # this uses pywt's 'symmetric' mode (duplicated edge)
+    # this uses scipy's wrap mode (equivalent to pywt's 'periodization' mode)
+    from .__compaction import non_compact, compact
 
-    from itertools import product
-    from numpy import divide, empty, copyto, abs #pylint: disable=redefined-builtin
-    from pywt import swt2, swtn
-    from ..util import get_im_min_max
-
+    # Apply the bilateral filtering if requested
     if bilateral_filter:
         args = (None, None, 1) if bilateral_filter is True else bilateral_filter
         from .__bilateral import bilateral_filter
-        im = bilateral_filter(im.astype(float, copy=False), *args)
+        im = bilateral_filter(im, *args)
 
-    # Change the copy method if we are using detail magnitudes
-    copy = lambda x, y: copyto(y, x)
-    detail_copy = abs if detail_magnitude else copy
+    # Look for optimized filter banks
+    filter_bank = None
+    if isinstance(kernel, str):
+        kernel = kernel.lower()
+        filter_bank = __FILTER_BANKS.get(kernel, None)
 
-    coeffs_per_level = 2**im.ndim
-    out = empty(im.shape + (1+nlevels*coeffs_per_level,))
+    if im.dtype.kind == 'f' or im.dtype.itemsize > 2 or filter_bank is None:
+        # Get any filter
+        if filter_bank is None:
+            from pywt import Wavelet
+            filter_bank = Wavelet(kernel).filter_bank[:2]
+        # Generate non-compacted results
+        return non_compact(im, nlevels * (1 << im.ndim), __generate_swts,
+                           (filter_bank, nlevels, detail_magnitude))
 
-    # Normalize image data to -0.5 to 0.5
-    # This means all coefficients have the same range (-1 to 1 for 2D using haar)
-    im = divide(im, float(max(get_im_min_max(im))), out[..., -1])
-    im -= 0.5
+    # Generate compacted results
+    scales = list(__generate_scales(im.ndim, filter_bank, nlevels, detail_magnitude))
+    return compact(im, scales, __generate_swts, (filter_bank, nlevels, detail_magnitude))
 
-    # Calculate coefficients
-    if im.ndim == 2:
-        # 2D is easy
-        coeffs = swt2(im, kernel, nlevels) # level 0 is at postion -1, nlevels-1 is at position 0
-        for i, (c_approx, (c_horiz, c_vert, c_diag)) in enumerate(coeffs):
-            detail_copy(c_diag, out[..., i*4 + 0])
-            detail_copy(c_vert, out[..., i*4 + 1])
-            detail_copy(c_horiz, out[..., i*4 + 2])
-            copy(c_approx, out[..., i*4 + 3])
-    else:
-        # 3D is more complicated to get all the data into the right places
-        coeffs = swtn(im, kernel, nlevels)
-        # coeffs is a list of dictionaries with the keys like ddd, dda, ..., aaa
-        # where the a stands for approximate and d stands for detail
-        coeff_names = [''.join(x) for x in product('da', repeat=im.ndim)]
-        coeff_approx = coeff_names.pop()
-        for i, data in enumerate(coeffs):
-            for j, name in enumerate(coeff_names[:-1]):
-                detail_copy(data[name], out[..., i*coeffs_per_level + j])
-            copy(data[coeff_approx], out[..., i*coeffs_per_level + len(coeff_names)])
+# Filter banks that have non-integer scaling factors removed so they can be used with compacting.
+# Filter banks are given as approximate and detail. Other filter banks will be taken from pywt.
+__FILTER_BANKS = {
+    'haar': ((1, 1), (1, -1)),
+}
 
-    return out
+def __generate_swts(im, filter_bank, nlevels=2, detail_magnitude=False):
+    """
+    Generate the SWTs for an image and a given set of filters across the given number of levels.
+    They are generated with all-approximate first and the A-D, D-A, D-D (for 2D) and in the order of
+    the levels. This yields the filtered image which is an ndarray that cannot be saved as it will
+    be reused to generate the next sample. This also means that the results of the generator cannot
+    simply be put in a list.
+    """
+    # pylint: disable=too-many-locals
+    from itertools import islice
+    from numpy import int64, abs # pylint: disable=redefined-builtin
+    from scipy.ndimage import correlate1d
 
-# TODO: compact using something like the following:
-#ndi.correlate(im.astype(int), [[1,1],[1,1]], origin=(-1,-1)) == np.around(c_approx*2).astype(int)
-#ndi.correlate(im.astype(int), [[1,1],[-1,-1]], origin=(-1,-1)) == np.around(c_horiz*2).astype(int)
-#      still has negative values
+    temps = [im] + \
+            [empty(im.shape, float if im.dtype.kind == 'f' else int64) for _ in range(nlevels)]
+    filter_bank = tuple(asarray(f, float) for f in filter_bank)
+
+    for level in range(nlevels):
+        last_filters = (None,) # the last set of filters used to generate a sample
+        has_detail = False # first iteration below never has a detail filter
+        for filters in product(filter_bank, repeat=im.ndim):
+            # Generate the filtered image but only for the axes that are different
+            start = __get_first_mismatch(filters, last_filters)
+            for i, fltr in islice(enumerate(filters), start, None):
+                correlate1d(temps[i], fltr, i, origin=-1, mode='wrap', output=temps[i+1])
+            last_filters = filters # save which filters we just used
+            if has_detail and detail_magnitude:
+                abs(temps[-1], temps[-1])
+            if not has_detail and level + 1 != nlevels:
+                # Complete approximate image is used for the next level
+                next_im = temps[-1].copy()
+            # Generate the SWT sample
+            yield temps[-1]
+            has_detail = True # remaining samples in this level has at least one detail filter
+
+        if level + 1 != nlevels:
+            # Upsample the filters and set the full-approximate filtered image as the base
+            filter_bank = __upsample_filters(filter_bank)
+            temps[0] = next_im
+
+def __generate_scales(ndim, filter_bank, nlevels=2, detail_magnitude=True):
+    """
+    Generates tuples of the scales that occur for a series of SWT samples. The tuples have the
+    negative and positive scales caused by the transforms. It is assumed that the filters are
+    integral.
+    """
+    from numpy import multiply
+    from .__compaction import scale_from_filter
+    filter_bank = tuple(asarray(f, int) for f in filter_bank)
+    level_scale = 1 # the scaling caused just be the current level
+    for level in range(nlevels):
+        has_detail = False # first iteration below never has a detail filter
+        for filters in product(filter_bank, repeat=ndim):
+            # Generate the "full" filter from the 1D filters
+            full = 1
+            for fltr in filters:
+                full = multiply.outer(full, fltr)
+            # Generate the scales for the negative and positive parts of the current filter
+            neg, pos = scale_from_filter(full)
+            if has_detail and detail_magnitude: neg, pos = 0, max(pos, neg)
+            yield (level_scale*neg, level_scale*pos)
+            # The all-approximate filter is used for determining the scale of the next level
+            if not has_detail: next_level_scale = pos-neg
+            has_detail = True # remaining samples in this level has at least one detail filter
+        if level + 1 != nlevels:
+            filter_bank = __upsample_filters(filter_bank)
+            level_scale = next_level_scale
+
+def __upsample_filters(filter_bank):
+    """Upsample a filter bank using algorithme à trous and thus inserting zeros."""
+    from numpy import zeros
+    upsampled_filter_bank = []
+    for fltr in filter_bank:
+        upsampled = zeros(2*len(fltr)-1, fltr.dtype)
+        for i, value in enumerate(fltr):
+            upsampled[2*i] = value
+        upsampled_filter_bank.append(upsampled)
+    return upsampled_filter_bank
+
+def __get_first_mismatch(itr1, itr2):
+    """
+    Gets the index of the first mismatch (using 'is' not '==') between itr1 and itr2. Returns -1 i
+    not found. Extra elements from the longer iterator are ignored.
+    """
+    return next((i for i, (a, b) in enumerate(zip(itr1, itr2)) if a is not b), -1)
