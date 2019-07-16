@@ -166,6 +166,17 @@ def prod(iterable):
     return reduce(mul, iterable, 1)
 
 @lru_cache(maxsize=None)
+def dist2_matrix(order, ndim):
+    """
+    Generate a squared-distance matrix with ndim dimensions that has at least order unique distances
+    in it. The distance are all relative to the middle of the matrix.
+    """
+    from numpy import ceil, ogrid
+    size = ceil(0.5*sqrt(8*order+1)-0.5).astype(int)-1
+    slc = slice(-size, size+1) # the filter is 2*size+1 square
+    return sum(x*x for x in ogrid[(slc,)*ndim])
+
+@lru_cache(maxsize=None)
 def generate_disks(order, ndim, hollow=False):
     """
     Generate disk/sphere masks up to a particular order for a number of dimensions. Does not include
@@ -177,10 +188,8 @@ def generate_disks(order, ndim, hollow=False):
     Each individual mask is made to be as small as possible by removing extraneous 0s on the
     outside.
     """
-    from numpy import ceil, ogrid, unique
-    size = ceil(0.5*sqrt(8*order+1)-0.5).astype(int)-1
-    slc = slice(-size, size+1) # the filter is 2*size+1 square
-    raw = sum(x*x for x in ogrid[(slc,)*ndim])
+    from numpy import unique
+    raw = dist2_matrix(order, ndim)
     values = unique(raw)[1:order][::-1]
     return tuple(trim_zeros((raw == i) if hollow else (raw <= i)) for i in values)
 

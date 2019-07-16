@@ -171,7 +171,6 @@ def calc_info_neighborhood_voting(im, size=3, invert=False):
          Proceedings of the Second Canadian Conference on Computer and Robot Vision.
     """
     # this uses scipy's 'reflect' mode (duplicated edge) ([2] says this should be constant-0)
-    from numpy import zeros
 
     # Deal with arguments
     if size < 3 or size % 2 != 1: raise ValueError('size')

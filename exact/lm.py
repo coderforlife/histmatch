@@ -3,8 +3,8 @@ Implements local means strict ordering for use with exact histogram equalization
 """
 
 from functools import lru_cache
-from numpy import uint64, ceil, sqrt, log2, empty, unique, ogrid
-from ..util import FLOAT64_NMANT, trim_zeros, as_unsigned, correlate
+from numpy import uint64, ceil, log2, empty, unique
+from ..util import FLOAT64_NMANT, dist2_matrix, trim_zeros, as_unsigned, correlate
 
 def calc_info(im, order=6):
     """
@@ -20,7 +20,7 @@ def calc_info(im, order=6):
     parameter is based on distance so an order of 6 will include some pixels for 2D images (distance
     of 2*sqrt(2)) that are not included in 3D images (order 6 only goes up to sqrt(6) away).
 
-    This uses the psi functions from [3] so they don't include redundany information or scaling
+    This uses the psi functions from [3] so they don't include redundant information or scaling
     factors as those won't change the relative order. The results are compacted as much as possible.
 
     The idea of using local neighbors was originally proposed in [1] and if order=2 is used on 2D
@@ -73,14 +73,13 @@ def __get_filters(dt, order, ndim):
     single filter is needed.
     """
     # Create the basic filter based on distance^2 from center
-    size = ceil(0.5*sqrt(8*order+1)-0.5).astype(int)-1
-    slc = slice(-size, size+1) # the filter is 2*size+1 square
-    raw = sum(x*x for x in ogrid[(slc,)*ndim])
+    raw = dist2_matrix(order, ndim)
 
+    # Cannot compact these types, just return a series of standard filters
     if dt.kind == 'f' or dt.itemsize > 2:
         return tuple(trim_zeros(raw == i) for i in unique(raw)[1:order][::-1]), False
 
-    # if dt.kind == 'u' and dt.itemsize <= 2 - pack filters tightly
+    # if dt.kind == 'u' and dt.itemsize <= 2 - compact filters
     nbits = dt.itemsize*8
     vals, counts = unique(raw, return_counts=True)
     extra_bits = [int(x) for x in ceil(log2(counts[:order]))] # perfect up to any reasonable value
