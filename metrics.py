@@ -6,11 +6,10 @@ from functools import lru_cache
 from collections.abc import Sequence
 
 from numpy import asarray, arange, empty, exp, log, log10, subtract, stack
+from scipy.ndimage import gaussian_filter
 
 from .util import (get_dtype_min_max, check_image_single_channel, check_image_mask_single_channel,
                    axes_combinations)
-
-# TODO: variational ability to reconstruct original
 
 def contrast_per_pixel(im):
     """
@@ -184,11 +183,11 @@ def enhancement_measurement(im, block_size=3, metric='sdme', alpha=0.75):
     measure. The size of the blocks is given by block_size (which can be a scalar or sequence) and
     defaults to 3x3. The entropic measures require an alpha parameter which defaults to 0.75. The
     value of alpha can also be a sequence in which case a sequence of values is returned for the
-    alphas. This is signficantly faster than calling this function with separate values of alpha.
+    alphas. This is significantly faster than calling this function with separate values of alpha.
 
     All of these have higher values to indicate "enhancement" and this higher is better.
 
-    Currently the logAME/logAMEE (Logarithmic AME / Integrated PLIP opertors from [3]) are not
+    Currently the logAME/logAMEE (Logarithmic AME / Integrated PLIP operators from [3]) are not
     included.
 
     REFERENCES
@@ -204,6 +203,7 @@ def enhancement_measurement(im, block_size=3, metric='sdme', alpha=0.75):
         enhancement", IEEE Transactions on IT in Biomedicine, 15(6):918-928.
     """
     # TODO: test, get response, and also just implement using convolutions like in measures.m?
+    # Also, EME has a divide-by-0 issue? their code picks the second-minimum
     from numpy import abs, isfinite # pylint: disable=redefined-builtin
     im = check_image_single_channel(im)
     metric = metric.lower()
@@ -223,7 +223,7 @@ def enhancement_measurement(im, block_size=3, metric='sdme', alpha=0.75):
     entropic = metric[-2:] == 'ee'
     if entropic: metric = metric[:-1]
     if metric == 'eme':
-        numer, denom = maxes, mins # TODO: pick next min?
+        numer, denom = maxes, mins
     elif metric == 'ame':
         numer, denom = maxes+mins, maxes-mins
     elif metric == 'logame':
@@ -382,7 +382,6 @@ def __ssim_im(im1, im2, block_size, k1, k2, sigma): # pylint: disable=too-many-a
         similarity", Optical Review, 16:613-621.
     """
     # pylint: disable=invalid-name
-    from scipy.ndimage import gaussian_filter
     from numpy import multiply, add, divide
 
     # Calculate constants
