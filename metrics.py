@@ -6,10 +6,11 @@ from functools import lru_cache
 from collections.abc import Sequence
 
 from numpy import asarray, arange, empty, exp, log, log10, subtract, stack
-from scipy.ndimage import gaussian_filter
 
 from .util import (get_dtype_min_max, check_image_single_channel, check_image_mask_single_channel,
                    axes_combinations)
+
+# TODO: variational ability to reconstruct original
 
 def contrast_per_pixel(im):
     """
@@ -183,11 +184,11 @@ def enhancement_measurement(im, block_size=3, metric='sdme', alpha=0.75):
     measure. The size of the blocks is given by block_size (which can be a scalar or sequence) and
     defaults to 3x3. The entropic measures require an alpha parameter which defaults to 0.75. The
     value of alpha can also be a sequence in which case a sequence of values is returned for the
-    alphas. This is significantly faster than calling this function with separate values of alpha.
+    alphas. This is signficantly faster than calling this function with separate values of alpha.
 
     All of these have higher values to indicate "enhancement" and this higher is better.
 
-    Currently the logAME/logAMEE (Logarithmic AME / Integrated PLIP operators from [3]) are not
+    Currently the logAME/logAMEE (Logarithmic AME / Integrated PLIP opertors from [3]) are not
     included.
 
     REFERENCES
@@ -203,7 +204,6 @@ def enhancement_measurement(im, block_size=3, metric='sdme', alpha=0.75):
         enhancement", IEEE Transactions on IT in Biomedicine, 15(6):918-928.
     """
     # TODO: test, get response, and also just implement using convolutions like in measures.m?
-    # Also, EME has a divide-by-0 issue? their code picks the second-minimum
     from numpy import abs, isfinite # pylint: disable=redefined-builtin
     im = check_image_single_channel(im)
     metric = metric.lower()
@@ -223,7 +223,7 @@ def enhancement_measurement(im, block_size=3, metric='sdme', alpha=0.75):
     entropic = metric[-2:] == 'ee'
     if entropic: metric = metric[:-1]
     if metric == 'eme':
-        numer, denom = maxes, mins
+        numer, denom = maxes, mins # TODO: pick next min?
     elif metric == 'ame':
         numer, denom = maxes+mins, maxes-mins
     elif metric == 'logame':
@@ -382,6 +382,7 @@ def __ssim_im(im1, im2, block_size, k1, k2, sigma): # pylint: disable=too-many-a
         similarity", Optical Review, 16:613-621.
     """
     # pylint: disable=invalid-name
+    from scipy.ndimage import gaussian_filter
     from numpy import multiply, add, divide
 
     # Calculate constants
@@ -611,3 +612,58 @@ def __get_rfft():
         empty_aligned = empty
 
     return rfftn, irfftn, empty_aligned
+
+def contrast_restoration(im, method, remove_bits=1, blur_sigma=0, **kwargs):
+    """
+    Performs contrast enhancement by degrading an image with degrade_image then performing histogram
+    equalization to restore the original histogram and hopefully the original image. The restored
+    image and the number of failures (or None if not available) is returned. Other metrics, such as
+    PSNR or SSIM, can be performed with the returned restored image. This restoration measurement
+    is done in [1,2].
+
+    REFERENCES
+     1. Nikolova M, Wen Y-W, and Chan R, 2013, "Exact histogram specification for digital images
+        using a variational approach", J of Mathematical Imaging and Vision, 46(3):309-325
+     2. Jung S-W, 2014, "Exact Histogram Specification Considering the Just Noticeable Difference",
+        IEIE Transactions on Smart Processing and Computing, 3(2):52-58.
+    """
+    from . import imhist, histeq, histeq_exact
+    hist = imhist(im)
+    degraded = degrade_image(im, remove_bits, blur_sigma)
+    return (histeq(degraded, hist, **kwargs), None) if method == 'classic' else \
+        histeq_exact(degraded, hist, method=method, return_fails=True, **kwargs)
+
+def degrade_image(im, remove_bits=1, blur_sigma=0):
+    """
+    Generates a degraded image by removing bits of data and/or blurring the image with a Gaussian
+    kernel. This degraded image can then be used to examine if a histogram equalization method can
+    fully restore the original image. This method of analysis is used in [1,2].
+
+    By default this reduces the number of bits by 1 and does not blur the image. Setting either of
+    the paramters to 0 skips that degradation method.
+
+    REFERENCES
+     1. Nikolova M, Wen Y-W, and Chan R, 2013, "Exact histogram specification for digital images
+        using a variational approach", J of Mathematical Imaging and Vision, 46(3):309-325
+     2. Jung S-W, 2014, "Exact Histogram Specification Considering the Just Noticeable Difference",
+        IEIE Transactions on Smart Processing and Computing, 3(2):52-58.
+    """
+    im = check_image_single_channel(im)
+    if remove_bits < 0 or remove_bits >= im.dtype.itemsize * 8 or int(remove_bits) != remove_bits:
+        raise ValueError('remove_bits')
+    if blur_sigma < 0: raise ValueError('blur_sigma')
+
+    # Remove bits
+    remove_bits = int(remove_bits)
+    if remove_bits > 0:
+        if im.dtype.kind == 'f':
+            im = im / (1 << remove_bits)
+        else:
+            if remove_bits > 1: im = im >> (remove_bits-1)
+            im = (im >> 1) + (im & 0x1) # last shift with rounding
+
+    # Blur the image
+    if blur_sigma > 0: im = gaussian_filter(im, blur_sigma)
+
+    # Return the degraded image
+    return im
