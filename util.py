@@ -210,7 +210,7 @@ def correlate(im, weights, output=None, mode='reflect', cval=0.0):
     support different values for each axis.
 
     NOTE: SciPy always converts the weights to float64 and does all of the math as float64 and thus
-    correletions/convolutions with (u)int64 operations may lose lowest signficant digits since a
+    correletions/convolutions with (u)int64 operations may lose lowest significant digits since a
     float64 cannot represent every integer above 2^52.
     """
     from scipy.ndimage.filters import correlate, correlate1d # pylint: disable=redefined-outer-name
@@ -228,11 +228,11 @@ def correlate(im, weights, output=None, mode='reflect', cval=0.0):
             im = output
         return output
     # TODO: decompose
-    #if any(weights.shape == 1):
+    #if any(x == 1 for x in weights.shape):
     #    ...
     return correlate(im, weights, output, mode, cval)
 
-def __decompose_2d(kernel): # [h1,h2]
+def __decompose_2d(kernel):
     """
     Decompose a 2D kernel into 2 1D kernels if possible. Returns None, None otherwise.
     """
