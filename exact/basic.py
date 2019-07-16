@@ -2,13 +2,15 @@
 Implements basic strict ordering techniques for use with exact histogram equalization. Included are:
 
 * Random
+* Gaussian/Laplacian
+* Mean/Laplacian
 * Local contrast
 * Neighborhood average and inverted neighborhood average
 * Neighborhood voting and inverted neighborhood voting
 """
 
-from numpy import empty, uint64
-from ..util import as_unsigned, log2i, get_uint_dtype_fit
+from numpy import empty, zeros, uint64
+from ..util import as_unsigned, log2i, get_uint_dtype_fit, get_dtype_max, generate_disks, correlate
 
 def calc_info_rand(im):
     """
@@ -23,7 +25,7 @@ def calc_info_rand(im):
         im = im + random(im.shape) - 0.5
     return im
 
-def calc_info_gaussian_laplacian(im, sigmas=(0.5, 1.0)):
+def calc_info_gaussian_laplacian(im, sigmas=(0.5, 1.0), laplacian_mag=True):
     """
     Assign strict ordering to image pixels. The returned value is the same shape but with an extra
     dimension for the results of the additional filters. This stack needs to be lex-sorted.
@@ -44,13 +46,74 @@ def calc_info_gaussian_laplacian(im, sigmas=(0.5, 1.0)):
     from scipy.ndimage import gaussian_filter, laplace
     from ..util import as_float
     im = as_float(im)
-    out = empty(im.shape + (2*len(sigmas)+1,))
+    out = empty((2*len(sigmas)+1,) + im.shape)
+    out[-1, ...] = im
     for i, sigma in enumerate(sigmas):
-        gauss = gaussian_filter(im, sigma, output=out[..., 2*i], truncate=2.5)
-        lap = laplace(gauss, output=out[..., 2*i])
-        abs(lap, lap)
-    out[..., -1] = im
+        gauss = gaussian_filter(im, sigma, output=out[-2*i-2, ...], truncate=2.5)
+        lap = laplace(gauss, output=out[-2*i-3, ...])
+        if laplacian_mag: abs(lap, lap)
     return out
+
+def calc_info_mean_laplacian(im, order=3, laplacian_mag=True):
+    """
+    Assign strict ordering to image pixels. The returned value is the same shape as the image but
+    with values for each pixel that can be used for strict ordering. For some types of images or
+    large orders this will return a stack of image values for lex-sorting.
+
+    This method was proposed in [1] and is a derivative of the local means method by [2] except that
+    it interleaves high-frequency filters with the local means so that it handles edges better. The
+    concept is similar to [3] except for the style of filters. However, as described, it is actually
+    identical to the LM method by [2] since the Laplacian filters end up producing redundant
+    information with earlier filters.
+
+    REFERENCES
+      1. Jung S-W, 2014, "Exact Histogram Specification Considering the Just Noticeable Difference",
+         IEIE Transactions on Smart Processing and Computing, 3(2):52-58.
+      2. Coltuc D, Bolon P and Chassery J-M, 2006, "Exact histogram specification", IEEE
+         Transcations on Image Processing 15(5):1143-1152.
+      3. Coltuc D and Bolon P, 1999, "Strict ordering on discrete images and applications"
+    """
+    # this uses scipy's 'reflect' mode (duplicated edge)
+    from .__compaction import non_compact, compact, scale_from_filter
+
+    # Deal with arguments
+    if order < 2: raise ValueError('order')
+
+    # Create the filters
+    filters = [None, None] * (order-1)
+    filters[::2] = [__make_laplacian(fltr) for fltr in generate_disks(order, im.ndim, False)]
+    filters[1::2] = generate_disks(order, im.ndim)
+    filters = filters[::-1] # compact goes from most-to-least important
+
+    # Filter the image
+    if im.dtype.kind == 'f' or im.dtype.itemsize > 2:
+        return non_compact(im, 2*order-2, __gen_mean_laplacian_filtered, (filters, laplacian_mag))
+    scales = [scale_from_filter(fltr) for fltr in filters] if not laplacian_mag else \
+        [(0, int(fltr.max() if i%2 == 1 else fltr.sum())) for i, fltr in enumerate(filters)]
+    return compact(im, scales, __gen_mean_laplacian_filtered, (filters, laplacian_mag))
+
+def __gen_mean_laplacian_filtered(im, filters, laplacian_mag=True):
+    """Generator for Mean-Laplacian strict ordering."""
+    from numpy import int64, abs # pylint: disable=redefined-builtin
+    data = empty(im.shape, float if im.dtype.kind == 'f' else int64)
+    for i, fltr in enumerate(filters):
+        correlate(im, fltr, output=data)
+        if laplacian_mag and i%2 == 1: abs(data, data)
+        yield data
+
+def __make_laplacian(fltr):
+    """
+    Take a disk and convert it into a 'Laplacian' filter with the central value equal to the number
+    of other values in the disk and all other values changed to -1. The Laplacian matches those
+    defined in [1].
+
+    REFERENCES
+      1. Jung S-W, 2014, "Exact Histogram Specification Considering the Just Noticeable Difference",
+         IEIE Transactions on Smart Processing and Computing, 3(2):52-58.
+    """
+    fltr = fltr * -1
+    fltr[tuple(x//2 for x in fltr.shape)] = -1-fltr.sum()
+    return fltr
 
 def calc_info_local_contrast(im, order=6):
     """

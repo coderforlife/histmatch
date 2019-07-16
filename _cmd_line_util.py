@@ -3,7 +3,7 @@
 from numpy import nan, inf
 import hist.exact.va as va
 
-METHODS = ('classic', 'arbitrary', 'rand', 'na', 'nv', 'gl', 'lc', 'lm', 'wa', 'swa', 'va',
+METHODS = ('classic', 'arbitrary', 'rand', 'na', 'nv', 'gl', 'ml', 'lc', 'lm', 'wa', 'swa', 'va',
            'optimum')
 
 def add_method_arg(parser):
