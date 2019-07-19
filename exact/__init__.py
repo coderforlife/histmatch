@@ -247,18 +247,19 @@ def __sort_pixels(values, shape, mask=None, return_fails=False, stable=False):
     else:
         # Tuple of values per pixel - need lexsort
         from numpy import lexsort
-        assert values.shape[:len(shape)] == shape
-        values = values.reshape((-1, values.shape[-1])) if mask is None else values[mask]
-        idx = lexsort(values.T, 0)
+        assert values.shape[1:] == shape
+        values = values.reshape(values.shape[0], -1) if mask is None else values[:, mask]
+        idx = lexsort(values, 0)
 
     # Done if not calculating failures
     if not return_fails: return idx, None
 
     # Calculate the number of sort failures
+    values = values.T # for lexsorted values
     values_sorted = values[idx]
     not_equals = values_sorted[1:] != values_sorted[:-1]
     del values_sorted
-    if not_equals.ndim == 2: not_equals = not_equals.any(1) # lexsorted
+    if not_equals.ndim == 2: not_equals = not_equals.any(1) # for lexsorted values
     return idx, not_equals.size - not_equals.sum()
 
 def __calc_transform(h_dst, dt, n_mask, n_full):

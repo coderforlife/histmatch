@@ -52,11 +52,11 @@ def calc_info(im, order=6):
 
     # Convolve filters with the image and stack
     im = im.astype(float, copy=False)
-    out = empty(im.shape+(len(filters)+(not includes_order_one),))
+    out = empty((len(filters)+(not includes_order_one),) + im.shape)
     for i, fltr in enumerate(filters):
-        correlate(im, fltr, out[..., i])
+        correlate(im, fltr, out[i, ...])
     if not includes_order_one:
-        out[..., -1] = im
+        out[-1, ...] = im
     return out
 
 @lru_cache(maxsize=None)

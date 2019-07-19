@@ -25,12 +25,12 @@ def compact(im, scales, filtered_gen, args):
     mx, bpp = get_dtype_max(im.dtype), im.dtype.itemsize * 8
     extra_bits = __compute_extra_bits_from_scales(scales)
     nlayers = __compute_num_layers(bpp, extra_bits)
-    out = zeros(im.shape + (nlayers,), uint64)
+    out = zeros((nlayers,) + im.shape, uint64)
 
     # Save the original image
     layer, shift = nlayers-1, 64-bpp
-    out[..., layer] = im
-    out[..., layer] <<= shift
+    out[layer, ...] = im
+    out[layer, ...] <<= shift
 
     # Perform filtering
     for (neg, _), ex_bits, filtered in zip(scales, extra_bits, filtered_gen):
@@ -46,9 +46,9 @@ def compact(im, scales, filtered_gen, args):
 
         # Save the filtered image
         filtered <<= shift
-        out[..., layer] |= filtered
+        out[layer, ...] |= filtered
 
-    return out[..., 0] if nlayers == 1 else out
+    return out[0, ...] if nlayers == 1 else out
 
 def non_compact(im, n, filtered_gen, args):
     """
@@ -56,11 +56,11 @@ def non_compact(im, n, filtered_gen, args):
     that the same generator could be used for both easily. The argument n is the number of filtered
     images to be generated. The filtered images generated should be floats.
     """
-    out = empty(im.shape + (n + 1,))
-    out[..., -1] = im
-    filtered_gen = filtered_gen(out[..., -1], *args)
+    out = empty((n + 1,) + im.shape)
+    out[-1, ...] = im
+    filtered_gen = filtered_gen(out[-1, ...], *args)
     for i, data in enumerate(filtered_gen):
-        out[..., -i-2] = data
+        out[-i-2, ...] = data
     return out
 
 def __compute_extra_bits_from_scales(scales):

@@ -135,33 +135,36 @@ def calc_info_local_contrast(im, order=6):
 
     # Floating-point images cannot be compacted
     if im.dtype.type == 'f':
-        out = empty(im.shape + (order,))
-        min_tmp = out[..., -1]
+        out = empty((order,) + im.shape)
+        min_tmp = out[-1, ...]
         for i, disk in enumerate(disks):
-            maximum_filter(im, footprint=disk, output=out[..., i])
+            maximum_filter(im, footprint=disk, output=out[i, ...])
             minimum_filter(im, footprint=disk, output=min_tmp)
-            out[..., i] -= min_tmp
-        out[..., -1] = im
+            out[i, ...] -= min_tmp
+        out[-1, ...] = im
         return out
 
     # Integral images can be compacted or at least stored in uint64 outputs
     bpp = im.dtype.itemsize*8
     dst_type = uint64 if order*bpp >= 64 else get_uint_dtype_fit(order*bpp)
-    out = empty(im.shape + ((order*bpp+63)//64,), dst_type)
+    out = empty(((order*bpp+63)//64,) + im.shape, dst_type)
     max_tmp, min_tmp = empty(im.shape, dst_type), empty(im.shape, dst_type)
     layer, shift = 0, 0
     for disk in disks:
         maximum_filter(im, footprint=disk, output=max_tmp)
         minimum_filter(im, footprint=disk, output=min_tmp)
         max_tmp -= min_tmp
-        out[..., layer] |= max_tmp << shift
+        max_tmp <<= shift
+        out[layer, ...] |= max_tmp
         shift += bpp
         if shift >= 64:
             layer += 1
             shift = 0
 
-    out[..., -1] |= im.astype(dst_type) << shift
-    return out[..., 0] if layer == 0 else out
+    im = im.astype(dst_type)
+    im <<= shift
+    out[-1, ...] |= im
+    return out[0, ...] if layer == 0 else out
 
 def calc_info_neighborhood_avg(im, size=3, invert=False):
     """
@@ -202,11 +205,11 @@ def calc_info_neighborhood_avg(im, size=3, invert=False):
 
     if dt.kind == 'f' or nbits > FLOAT64_NMANT:
         # No compaction possible
-        out = empty(im.shape + (2,))
-        avg = correlate(im, ones(size), out[..., 0])
+        out = empty((2,) + im.shape)
+        avg = correlate(im, ones(size), out[0, ...])
         if invert:
             subtract(avg.max() if dt.kind == 'f' else (n_neighbors * get_dtype_max(dt)), avg, avg)
-        out[..., 1] = im # the original image is still part of this
+        out[1, ...] = im # the original image is still part of this
     else:
         # Compact the results
         out = correlate(im, ones(size), empty(im.shape, uint64))
@@ -234,6 +237,8 @@ def calc_info_neighborhood_voting(im, size=3, invert=False):
     """
     # this uses scipy's 'reflect' mode (duplicated edge) ([2] says this should be constant-0)
 
+    # TODO: get different results with/without compaction and with/without Cython...
+
     # Deal with arguments
     if size < 3 or size % 2 != 1: raise ValueError('size')
     im = as_unsigned(im)
@@ -244,9 +249,9 @@ def calc_info_neighborhood_voting(im, size=3, invert=False):
 
     if dt.kind == 'f' or nbits > 63:
         # No compaction possible
-        out = zeros(im.shape + (2,), float if dt.kind == 'f' else uint64)
-        __count_votes(im, out[..., 0], size, invert)
-        out[..., 1] = im # the original image is still part of this
+        out = zeros((2,) + im.shape, float if dt.kind == 'f' else uint64)
+        __count_votes(im, out[0, ...], size, invert)
+        out[1, ...] = im # the original image is still part of this
     else:
         # Compact the results
         out = zeros(im.shape, get_uint_dtype_fit(nbits))
