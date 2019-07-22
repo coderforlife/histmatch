@@ -1,10 +1,9 @@
+# cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 """
 Cython accelerated filters for exact.swa.bilateral to be used with scipy.ndimage.generic_filter.
 The only exposes Python function is to create the necessary user data for the bl_filter function.
 The other function needs to be used with scipy.LowLevelCallable.
 """
-
-# cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 
 from libc.stdint cimport intptr_t
 from libc.stdlib cimport malloc, free

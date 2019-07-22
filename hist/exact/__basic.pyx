@@ -1,9 +1,8 @@
+# cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 """
 Cython accelerated filters for basic.__count_votes to be used with scipy.ndimage.generic_filter.
 This does not expose any Python functions, only functions to be used with scipy.LowLevelCallable.
 """
-
-# cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 
 from libc.stdint cimport intptr_t
 
