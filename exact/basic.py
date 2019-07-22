@@ -66,7 +66,7 @@ def calc_info_gaussian_laplacian(im, sigmas=(0.5, 1.0), laplacian_mag=True):
             tmp <<= 26
             out[-i-1, ...] |= tmp
             # Laplacian filter in bits 0-25 (26 bits)
-            tmp[...] = multiply(lap, 1<<16, lap).round(out=lap) 
+            tmp[...] = multiply(lap, 1<<16, lap).round(out=lap)
             out[-i-1, ...] |= tmp
         return out[0] if len(sigmas) <= 1 else out
 
