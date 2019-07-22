@@ -12,7 +12,7 @@ def main():
     from hist.util import as_float
 
     # Extra imports to make sure everything is available now
-    import numpy, scipy.ndimage
+    import numpy, scipy.ndimage # pylint: disable=unused-import, multiple-imports
 
     parser = argparse.ArgumentParser(description='Perform histogram equalization on an image')
     parser.add_argument('input', help='input image file')
