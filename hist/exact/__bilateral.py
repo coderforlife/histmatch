@@ -36,10 +36,10 @@ def bilateral_filter(im, size=None, sigma_r=None, sigma_d=1, **kwargs):
     try:
         # Try to import Cython optimized code - 20 to 75x faster
         from scipy import LowLevelCallable
-        import hist.exact.bilateral_cy as bilateral_cy
+        import hist.exact.__bilateral_cy as cy
         _bilateral_filter = LowLevelCallable.from_cython(
-            bilateral_cy, 'bilateral_filter' if inten_lut is None else 'bilateral_filter_inten_lut',
-            bilateral_cy.get_user_data(spatial, scale, inten_lut)) # pylint: disable=c-extension-no-member
+            cy, 'bilateral_filter' if inten_lut is None else 'bilateral_filter_inten_lut',
+            cy.get_user_data(spatial, scale, inten_lut)) # pylint: disable=c-extension-no-member
     except ImportError:
         # Fallback to pure Python function
         # Note: it seems the pure Python function actually gets slower with the intensity LUT

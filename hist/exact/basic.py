@@ -303,8 +303,8 @@ def __count_votes(im, out, size, invert):
     # Try to use the Cython functions if possible - they are ~160x faster!
     try:
         from scipy import LowLevelCallable
-        import hist.exact.basic_cy as basic_cy
-        voting = LowLevelCallable.from_cython(basic_cy, 'vote_lesser' if invert else 'vote_greater')
+        import hist.exact.__basic as cy
+        voting = LowLevelCallable.from_cython(cy, 'vote_lesser' if invert else 'vote_greater')
     except ImportError:
         # Fallback
         from numpy import greater, less
