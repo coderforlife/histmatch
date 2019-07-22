@@ -4,7 +4,6 @@ The only exposes Python function is to create the necessary user data for the bl
 The other function needs to be used with scipy.LowLevelCallable.
 """
 
-# distutils: define_macros=NPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 
 from libc.stdint cimport intptr_t
@@ -12,8 +11,6 @@ from libc.stdlib cimport malloc, free
 from libc.math cimport exp, fabs
 
 from cpython.pycapsule cimport PyCapsule_New, PyCapsule_GetPointer
-
-cimport numpy as np
 
 def get_user_data(double[::1] spatial, double scale, double[::1] intensity_lut=None):
     """
