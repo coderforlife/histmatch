@@ -7,8 +7,6 @@ from .exact import histeq_exact
 from .metrics import (contrast_per_pixel, distortion, count_differences, psnr, ssim,
                       enhancement_measurement)
 
-# numpy >= v1.15, scipy >= v1.0
-
 def imhist(im, nbins=256, mask=None):
     """Calculate the histogram of an image. By default it uses 256 bins (nbins)."""
     from .util import check_image_mask_single_channel
