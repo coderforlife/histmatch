@@ -42,14 +42,40 @@ def calc_info_gaussian_laplacian(im, sigmas=(0.5, 1.0), laplacian_mag=True):
       1. Coltuc D and Bolon P, 1999, "Strict ordering on discrete images and applications"
     """
     # this uses scipy's 'reflect' mode (duplicated edge)
-    from numpy import abs # pylint: disable=redefined-builtin
+    from numpy import abs, multiply # pylint: disable=redefined-builtin
     from scipy.ndimage import gaussian_filter, laplace
     from ..util import as_float
+
+    # Compaction only works for 8-bit integers
+    if im.dtype.kind in 'iub' and im.dtype.itemsize == 1:
+        im = as_unsigned(im)
+        out = empty((len(sigmas),) + im.shape, uint64)
+        out[-1, ...] = im
+        out[-1, ...] <<= 56 # identity in 56-63 (8 bits)
+        gauss, lap = empty(im.shape), empty(im.shape)
+        tmp = empty(im.shape, uint64)
+        for i, sigma in enumerate(sigmas):
+            gaussian_filter(im, sigma, output=gauss, truncate=2)
+            laplace(gauss, output=lap)
+            if laplacian_mag:
+                abs(lap, lap)
+            else:
+                lap += 1020 # needs to be positive
+            # Gaussian filter in bits 26-49 (24 bits)
+            tmp[...] = multiply(gauss, 1<<16, gauss).round(out=gauss)
+            tmp <<= 26
+            out[-i-1, ...] |= tmp
+            # Laplacian filter in bits 0-25 (26 bits)
+            tmp[...] = multiply(lap, 1<<16, lap).round(out=lap) 
+            out[-i-1, ...] |= tmp
+        return out[0] if len(sigmas) <= 1 else out
+
+    # Non-compacted version
     im = as_float(im)
     out = empty((2*len(sigmas)+1,) + im.shape)
     out[-1, ...] = im
     for i, sigma in enumerate(sigmas):
-        gauss = gaussian_filter(im, sigma, output=out[-2*i-2, ...], truncate=2.5)
+        gauss = gaussian_filter(im, sigma, output=out[-2*i-2, ...], truncate=2)
         lap = laplace(gauss, output=out[-2*i-3, ...])
         if laplacian_mag: abs(lap, lap)
     return out
@@ -215,7 +241,9 @@ def calc_info_neighborhood_avg(im, size=3, invert=False):
         out = correlate(im, ones(size), empty(im.shape, uint64))
         if invert:
             subtract(n_neighbors * get_dtype_max(dt), out, out)
-        out |= im.astype(out.dtype) << shift # the original image is still part of this
+        im = im.astype(out.dtype)
+        im <<= shift
+        out |= im # the original image is still part of this
     return out
 
 def calc_info_neighborhood_voting(im, size=3, invert=False):
@@ -256,7 +284,9 @@ def calc_info_neighborhood_voting(im, size=3, invert=False):
         # Compact the results
         out = zeros(im.shape, get_uint_dtype_fit(nbits))
         __count_votes(im, out, size, invert)
-        out |= im.astype(out.dtype) << shift # the original image is still part of this
+        im = im.astype(out.dtype)
+        im <<= shift
+        out |= im # the original image is still part of this
 
     return out
 
