@@ -8,6 +8,7 @@ __pycache__/
 
 # Cython
 *.c
+*.cpp
 
 # Distribution / packaging
 .Python
