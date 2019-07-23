@@ -1,3 +1,4 @@
+# distutils: extra_compile_args=-O3
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 """
 Cython accelerated filters for basic.__count_votes to be used with scipy.ndimage.generic_filter.
