@@ -12,7 +12,7 @@ def calc_info(im, nlevels=2, wavelet='haar', return_fails=False):
     the number of sorting failures (since that information is no longer available with pre-sorted
     indices.
 
-    This calculates the extra information using the tradition (decimating) wavelet transform and
+    This calculates the extra information using the traditional (decimating) wavelet transform and
     then uses complex sorting rules to determine the sorted order of the pixels. Even though this
     method is referenced in many papers and used as a baseline to demonstrate improvements, it is
     unlikely to have been implemented correctly in any of them due to the complex sorting required.

@@ -86,9 +86,19 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
         Method has been adapted to support 3D data. Does not support anisotropic data.
 
     WA: Wavelet Approach by Wan and Shi [8]
-        ...
+        Uses the traditional (decimating) wavelet transform and complex sorting rules to distinguish
+        between same-valued pixels. Even though this method is referenced in many papers and used as
+        a baseline to demonstrate improvements, it is unlikely to have been implemented correctly in
+        any of them due to the complex sorting required. In some papers this is obvious by the way
+        they reference the data (for example saying that k=9 and a standard strict ordering is
+        performed).
+
+        Due to the complexity of this method and the various confusing parts of the original paper,
+        this is a best effort to do it correctly but may still be incorrect.
 
         Method has been adapted to support 3D data. Does not support anisotropic data.
+
+        This requires pyWavelets along with Cython to use the C++ std:sort for efficiency.
 
     SWA: Stationary Wavelet Approach
         This is a derivation of the WA that uses the stationary wavelet transform and does not
