@@ -6,7 +6,9 @@ def calc_info(im, h_dst, reconstruction=False, return_fails=False):
     optimal in the sense of reducing MSE during reconstruction.
 
     Unlike the other exact histogram equalization methods this returns already sorted indices as a
-    1D array meaning the sorting step in histeq_exact is skipped.
+    1D array meaning the sorting step in histeq_exact is skipped. If return_fails=True then this
+    also returns the number of sorting failures (since that information is no longer available with
+    pre-sorted indices)
 
     REFERENCES:
      1. Balado, Félix, 2018, "Optimum Exact Histogram Specification", IEEE International Conference
