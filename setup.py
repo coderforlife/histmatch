@@ -27,7 +27,7 @@ setup(
     keywords='image-processing histogram-equalization contrast-enhancement',
     packages=find_packages(exclude=['contrib', 'docs', 'tests']),
     python_requires='>=3.6, <4',
-    install_requires=['numpy>=1.15', 'scipy>=1', 'cython>=0.28'],
+    install_requires=['imageio', 'numpy>=1.15', 'scipy>=1', 'cython>=0.28'],
     extras_require={'opt': ['pyfftw', 'PyWavelets']},
     ext_modules=cythonize('hist/exact/*.pyx'),
     #package_data={'hist': ['*.c'],},
