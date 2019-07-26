@@ -1,6 +1,6 @@
 """The optimum exact histogram equalization according to minimizing the MSE."""
 
-def calc_info(im, h_dst, reconstruction=False):
+def calc_info(im, h_dst, reconstruction=False, return_fails=False):
     """
     Perform exact histogram equalization using the 'optimum' method as defined by [1]. This is
     optimal in the sense of reducing MSE during reconstruction.
@@ -34,6 +34,12 @@ def calc_info(im, h_dst, reconstruction=False):
         for i, j in __bracket_iter(h_dst):
             index_z[i:j].sort()
 
+    if return_fails:
+        # This is the same as done in hist.exact.__sort_pixels but since we are returning the
+        # sorted data we need to do this here.
+        values_sorted = im.ravel()[index_z]
+        not_equals = values_sorted[1:] != values_sorted[:-1]
+        return index_z, not_equals.size - not_equals.sum()
     return index_z
 
 def __bracket_iter(iterable):

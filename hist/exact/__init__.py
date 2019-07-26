@@ -149,7 +149,10 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
     ##### Create strict-orderable versions of image #####
     # These are frequently floating-point 'images' and/or images with an extra dimension giving a
     # 'tuple' of data for each pixel
+    method = method.lower()
     if method == 'optimum': kwargs['h_dst'] = h_dst # optimum needs the h_dst data
+    if method in ('wa', 'optimum'): # these directly compute failures
+        kwargs['return_fails'] = return_fails
     values = __calc_info(im, method, **kwargs)
 
     ##### Assign strict ordering #####
@@ -194,7 +197,6 @@ def __calc_info(im, method, **kwargs):
     with an extra dimension giving a 'tuple' of data for each pixel.
     """
     # pylint: disable=too-many-branches
-    method = method.lower()
     if method in ('arbitrary', None):
         calc_info = lambda x: x
     elif method in ('rand', 'random'):
@@ -233,6 +235,11 @@ def __sort_pixels(values, shape, mask=None, return_fails=False, stable=False):
 
     Returns the indices of the sorted values and the number of fails (or None if not requested).
     """
+    ##### Check if the values already contain the failures #####
+    fails = None
+    if return_fails and isinstance(values, tuple):
+        values, fails = values
+
     ##### Assign strict ordering #####
     if values.ndim == 1:
         # Already sorted
@@ -252,7 +259,7 @@ def __sort_pixels(values, shape, mask=None, return_fails=False, stable=False):
         idx = lexsort(values, 0)
 
     # Done if not calculating failures
-    if not return_fails: return idx, None
+    if not return_fails or fails is not None: return idx, fails
 
     # Calculate the number of sort failures
     values = values.T # for lexsorted values
