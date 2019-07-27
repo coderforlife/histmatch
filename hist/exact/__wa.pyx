@@ -138,12 +138,9 @@ typedef CompN<4, true> Comp4FC;
 typedef CompN<8, true> Comp8FC;
 """
     # Basic types defined in the code above
-    ctypedef double dbl
-    ctypedef dbl* dbls
-    ctypedef intptr_t intp
-    ctypedef intp* intps
-    ctypedef uint8_t byte
-    ctypedef byte* bytes
+    ctypedef double* dbls
+    ctypedef intptr_t* intps
+    ctypedef uint8_t* bytes
     ctypedef unordered_map[intptr_t, unordered_set[intptr_t]] uv_map
 
     # These don't count failures, the 4 and 8 one are optimized for 2D and 3D images
@@ -156,7 +153,7 @@ typedef CompN<8, true> Comp8FC;
 
     # These count failures, the 4 and 8 one are optimized for 2D and 3D images
     cdef cppclass CompFC:
-        CompFC(int nlvls, int nfltrs, dbls im, intps* coords, dbls* thetas, bytes* tw0s, uv_map& fails) nogil
+        CompFC(int nlvls, int nfltrs, dbls im, intps* coords, dbls* thetas, bytes*, uv_map&) nogil
     cdef cppclass Comp4FC:
         Comp4FC(int nlvls, dbls im, intps* coords, dbls* thetas, bytes* tw0s, uv_map& fails) nogil
     cdef cppclass Comp8FC:

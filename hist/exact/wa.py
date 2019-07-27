@@ -129,7 +129,7 @@ def __sort_level(theta, tw0):
     NOTE: returned tw0 is actually the given tw0 (modified in-place), theta is a copy however.
     """
     from numpy import take_along_axis
-    order = theta.argsort(-1)
+    order = theta.argsort(-1)[..., ::-1] # descending order
     theta = take_along_axis(theta, order, -1)
     for slc in product((slice(0, None, 2), slice(1, None, 2)), repeat=tw0.ndim-1):
         tw0[slc] = take_along_axis(tw0[slc], order, -1)
