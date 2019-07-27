@@ -264,9 +264,7 @@ def calc_info_neighborhood_voting(im, size=3, invert=False):
          Proceedings of the Second Canadian Conference on Computer and Robot Vision.
     """
     # this uses scipy's 'reflect' mode (duplicated edge) ([2] says this should be constant-0)
-
-    # TODO: get different results with/without compaction and with/without Cython...
-
+    
     # Deal with arguments
     if size < 3 or size % 2 != 1: raise ValueError('size')
     im = as_unsigned(im)
@@ -308,7 +306,7 @@ def __count_votes(im, out, size, invert):
     except ImportError:
         # Fallback
         from numpy import greater, less
-        compare = less if invert else greater
+        compare = greater if invert else less
         tmp = empty(size ** im.ndim, bool)
         mid = tmp.size // 2
         voting = lambda x: compare(x[mid], x, tmp).sum()
