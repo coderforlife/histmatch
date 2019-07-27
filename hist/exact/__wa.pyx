@@ -38,7 +38,7 @@ typedef byte* __restrict bytes __attribute__((aligned()));
 
 typedef std::unordered_map<intptr_t, std::unordered_set<intptr_t>> uv_map;
 
-template <int NF=0, bool FAIL_COUNT=false>
+template <int NF=0, bool COUNT_FAILS=false, bool STABLE=false>
 class CompN {
     const int nlvls, nfltrs;
     const dbls im; // size                              x_u => im[u]
@@ -47,15 +47,15 @@ class CompN {
     bytes* tw0s;   // nlvls x (size (pre-dec))*nfltrs   theta_uij*w_uij_u>0 => tw0s[j][u,i]
 
     // This map is only available if we are counting failures
-    typedef typename std::conditional<FAIL_COUNT, uv_map&, unsigned char>::type uv_map_t;
+    typedef typename std::conditional<COUNT_FAILS, uv_map&, unsigned char>::type uv_map_t;
     volatile uv_map_t fails;
 
-    template<bool _FC = FAIL_COUNT>
-    inline typename std::enable_if<_FC>::type insert_fail(intp u, intp v) const {
+    template<bool _CF=COUNT_FAILS>
+    inline typename std::enable_if<_CF>::type insert_fail(intp u, intp v) const {
         fails[u].insert(v);
     }
-    template<bool _FC = FAIL_COUNT>
-    inline typename std::enable_if<!_FC>::type insert_fail(intp u, intp v) const {}
+    template<bool _CF=COUNT_FAILS>
+    inline typename std::enable_if<!_CF>::type insert_fail(intp u, intp v) const {}
 
 public:
     inline CompN(int nlvls, dbls im, intps* coords, dbls* thetas, bytes* tw0s) :
@@ -106,7 +106,7 @@ public:
                 // No additional levels will help distinguish these since they will have the same u
                 // and v at any further levels.
                 insert_fail(u_orig, v_orig);
-                return false;
+                return STABLE ? u_orig < v_orig : false;
             }
 
             // The |theta_uij| and |theta_vij| values for all i
@@ -126,7 +126,7 @@ public:
 
         // Not enough data to make a decision (more levels could help distinguish these)
         insert_fail(u_orig, v_orig);
-        return false;
+        return STABLE ? u_orig < v_orig : false;
     }
 };
 
