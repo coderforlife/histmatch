@@ -105,10 +105,12 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
         have the additional sorting steps. This is likely (or similar to) the method used by most of
         the papers referencing [8] such as [10].
 
-        Set bilateral_filter=(3,1,1) to reproduce [9]. Can also set detail_magnitude=False to
-        disable getting magnitude of edges which might be more accurate to various papers but
-        further from [8]. Can adjust the number of levels with nlevels (defaults to 2) and the
-        kernel used (defaults to 'haar').
+        To reproduce [9] the image must have a bilateral filter applied first with a size of 3 and a
+        sigma_r and sigma_d of 1.
+
+        Can also set detail_magnitude=False to disable getting magnitude of edges which might be
+        more accurate to various papers but further from [8]. Can adjust the number of levels with
+        nlevels (defaults to 2) and the kernel used (defaults to 'haar').
 
     VA: Variational Approach by Nikolova, Wen and Chan [10]
         This attempts to reconstruct the original real-valued version of the image and thus is a

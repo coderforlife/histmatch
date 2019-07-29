@@ -9,7 +9,7 @@ from itertools import product
 
 from numpy import asarray, empty
 
-def calc_info(im, bilateral_filter=False, detail_magnitude=True, nlevels=2, kernel='haar'):
+def calc_info(im, detail_magnitude=True, nlevels=2, kernel='haar'):
     """
     Assign strict ordering to image pixels. The returned value is the same shape but with an extra
     dimension for the results of the additional filters. This stack needs to be lex-sorted. The
@@ -37,10 +37,8 @@ def calc_info(im, bilateral_filter=False, detail_magnitude=True, nlevels=2, kern
     direction sorts higher. The default is to not do this as no paper makes this explicit although
     it makes sense and may reproduce the extra sorting information in [1] partially.
 
-    To reproduce [2] this can also apply a bilateral filtering to the image before calculating the
-    coefficients. The parameter bilateral_filter can be set to True to use the default options for
-    bilateral_filter or it can be a 3-element tuple to set the size, sigma_r, and sigma_d
-    parameters of bilateral_filter. To completely reproduce [2] this needs to be set to (3,1,1).
+    To reproduce [2] the image must first have a bilateral filtering applied with a size of 3 and a
+    sigma_r and sigma_d of 1.
 
     This implementation supports 3D data, however only isotropic data is supported.
 
@@ -65,12 +63,6 @@ def calc_info(im, bilateral_filter=False, detail_magnitude=True, nlevels=2, kern
     """
     # this uses scipy's wrap mode (equivalent to pywt's 'periodization' mode)
     from .__compaction import non_compact, compact
-
-    # Apply the bilateral filtering if requested
-    if bilateral_filter:
-        args = (None, None, 1) if bilateral_filter is True else bilateral_filter
-        from .__bilateral import bilateral_filter
-        im = bilateral_filter(im, *args)
 
     # Look for optimized filter banks
     filter_bank = None
