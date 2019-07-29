@@ -17,6 +17,33 @@ def add_kwargs_arg(parser):
                         'a valid Python literal or one of the special values nan, inf, -inf, N4, '+
                         'N8, N8_DIST, N6, N18, N18_DIST, N26, N26_DIST')
 
+def add_input_image(parser):
+    """
+    Add a required input argument and an optional --float argument. Use the open_input_image
+    function to read the image.
+    """
+    parser.add_argument('input', help='input image file (including .npy files)')
+    parser.add_argument('--float', action='store_true', help='convert image to float')
+
+def open_input_image(args):
+    """
+    Opens the args.input image, converting to float is args.float is True. If the image filename
+    can end with .npy in which case it is directly loaded. Otherwise imageio is used to load the
+    image and if it is color the mean of the color channels is used. You can use add_input_image to
+    setup the parser arguments for this function.
+    """
+    import imageio
+    from numpy import load
+    from hist.util import as_float
+    if args.input.endswith('.npy'):
+        im = load(args.input)
+    else:
+        im = imageio.imread(args.input)
+        if im.ndim != 2: im = im.mean(2)
+    if args.float: im = as_float(im)
+    return im
+
+
 __CONVERSIONS = {
     'nan': nan,
     'inf': inf,

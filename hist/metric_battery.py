@@ -101,25 +101,20 @@ def __plot(idx, im):
 def main():
     """Main function that runs histogram equalization metric battery on an image."""
     import argparse
-    import imageio
     import hist._cmd_line_util as cui
-    from hist.util import as_float
 
     parser = argparse.ArgumentParser(
         description='Calculate a series of metrics on the histogram equalization on an image')
-    parser.add_argument('input', help='input image file')
+    cui.add_input_image(parser)
     cui.add_method_arg(parser)
     parser.add_argument('--csv', action='store_true', help='output data as CSV with no header')
     parser.add_argument('--plot', action='store_true',
                         help='plot original, enhanced, and reconstructed images with histograms')
-    parser.add_argument('--float', action='store_true', help='convert image to float')
     cui.add_kwargs_arg(parser)
     args = parser.parse_args()
 
     # Load image
-    im = imageio.imread(args.input)
-    if im.ndim != 2: im = im.mean(2)
-    if args.float: im = as_float(im)
+    im = cui.open_input_image(args)
 
     # Run
     print(args.input, end=',' if args.csv else '\n')
