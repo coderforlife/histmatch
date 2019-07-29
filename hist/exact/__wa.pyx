@@ -41,7 +41,6 @@ typedef std::unordered_map<intptr_t, std::unordered_set<intptr_t>> uv_map;
 template <int NF=0, bool COUNT_FAILS=false, bool STABLE=false>
 class CompN {
     const int nlvls, nfltrs;
-    const dbls im; // size                              x_u => im[u]
     intps* coords; // nlvls x size (pre-dec)            u* = coords[j][u]
     dbls* thetas;  // nlvls x (size (post-dec))*nfltrs  |theta_uij| => thetas[j][u*,i]
     bytes* tw0s;   // nlvls x (size (pre-dec))*nfltrs   theta_uij*w_uij_u>0 => tw0s[j][u,i]
@@ -58,20 +57,20 @@ class CompN {
     inline typename std::enable_if<!_CF>::type insert_fail(intp u, intp v) const {}
 
 public:
-    inline CompN(int nlvls, dbls im, intps* coords, dbls* thetas, bytes* tw0s) :
-        nlvls(nlvls), nfltrs(NF), im(im), coords(coords), thetas(thetas), tw0s(tw0s)
+    inline CompN(int nlvls, intps* coords, dbls* thetas, bytes* tw0s) :
+        nlvls(nlvls), nfltrs(NF), coords(coords), thetas(thetas), tw0s(tw0s)
     { assert(NF != 0); }
 
-    inline CompN(int nlvls, int nfltrs, dbls im, intps* coords, dbls* thetas, bytes* tw0s) :
-        nlvls(nlvls), nfltrs(nfltrs), im(im), coords(coords), thetas(thetas), tw0s(tw0s)
+    inline CompN(int nlvls, int nfltrs, intps* coords, dbls* thetas, bytes* tw0s) :
+        nlvls(nlvls), nfltrs(nfltrs), coords(coords), thetas(thetas), tw0s(tw0s)
     { assert(NF == 0 || NF == nfltrs); }
 
-    inline CompN(int nlvls, dbls im, intps* coords, dbls* thetas, bytes* tw0s, uv_map_t fails) :
-        nlvls(nlvls), nfltrs(NF), im(im), coords(coords), thetas(thetas), tw0s(tw0s), fails(fails)
+    inline CompN(int nlvls, intps* coords, dbls* thetas, bytes* tw0s, uv_map_t fails) :
+        nlvls(nlvls), nfltrs(NF), coords(coords), thetas(thetas), tw0s(tw0s), fails(fails)
     { assert(NF != 0); }
 
-    inline CompN(int nlvls, int nfltrs, dbls im, intps* coords, dbls* thetas, bytes* tw0s, uv_map_t fails) :
-        nlvls(nlvls), nfltrs(nfltrs), im(im), coords(coords), thetas(thetas), tw0s(tw0s), fails(fails)
+    inline CompN(int nlvls, int nfltrs, intps* coords, dbls* thetas, bytes* tw0s, uv_map_t fails) :
+        nlvls(nlvls), nfltrs(nfltrs), coords(coords), thetas(thetas), tw0s(tw0s), fails(fails)
     { assert(NF == 0 || NF == nfltrs); }
 
     /*
@@ -80,9 +79,6 @@ public:
      https://arxiv.org/abs/0707.1532 but that is way more complicated.
      */
     inline bool operator()(intp u, intp v) const {
-        // Simple case - different original pixel values
-        if (likely(im[u] != im[v])) { return im[u] < im[v]; }
-
         // Otherwise go through all sorted coefficients and calculate order
         int nfilters = NF ? NF : this->nfltrs; // this is solved at compile-time
         intp u_orig = u, v_orig = v;
@@ -145,19 +141,20 @@ typedef CompN<8, true> Comp8FC;
 
     # These don't count failures, the 4 and 8 one are optimized for 2D and 3D images
     cdef cppclass Comp:
-        Comp(int nlvls, int nfltrs, dbls im, intps* coords, dbls* thetas, bytes* tw0s) nogil
+        Comp(int nlvls, int nfltrs, intps* coords, dbls* thetas, bytes* tw0s) nogil
     cdef cppclass Comp4:
-        Comp4(int nlvls, dbls im, intps* coords, dbls* thetas, bytes* tw0s) nogil
+        Comp4(int nlvls, intps* coords, dbls* thetas, bytes* tw0s) nogil
     cdef cppclass Comp8:
-        Comp8(int nlvls, dbls im, intps* coords, dbls* thetas, bytes* tw0s) nogil
+        Comp8(int nlvls, intps* coords, dbls* thetas, bytes* tw0s) nogil
 
     # These count failures, the 4 and 8 one are optimized for 2D and 3D images
     cdef cppclass CompFC:
-        CompFC(int nlvls, int nfltrs, dbls im, intps* coords, dbls* thetas, bytes*, uv_map&) nogil
+        CompFC(int nlvls, int nfltrs, intps* coords, dbls* thetas, bytes* tw0s, uv_map& fails) nogil
     cdef cppclass Comp4FC:
-        Comp4FC(int nlvls, dbls im, intps* coords, dbls* thetas, bytes* tw0s, uv_map& fails) nogil
+        Comp4FC(int nlvls, intps* coords, dbls* thetas, bytes* tw0s, uv_map& fails) nogil
+        #bool operator()(intptr_t u, intptr_t v) nogil
     cdef cppclass Comp8FC:
-        Comp8FC(int nlvls, dbls im, intps* coords, dbls* thetas, bytes* tw0s, uv_map& fails) nogil
+        Comp8FC(int nlvls, intps* coords, dbls* thetas, bytes* tw0s, uv_map& fails) nogil
 
 cdef get_coords(shape):
     """
@@ -176,11 +173,15 @@ cdef inline check_array(name, arr, int dtype, shape):
         raise ValueError('bad %s: expected %r of %s but got %r of %s'%
             (name, shape, 'float64' if dtype == NPY_FLOAT64 else 'uint8', arr.shape, arr.dtype))
 
-cdef inline intptr_t count_fails(intptr_t[::1] idx, dict fails2) except -1:
+cdef inline intptr_t count_fails(intptr_t[::1] idx, dict fails) except -1:
     """
     Counts the number of failures to sort in the given set of sorted indices and a dictionary of
     pairs that failed to sort (dict of set).
     """
+    cdef dict fails2 = fails.copy() # create a bi-directional lookup to speed up the lookups
+    for k, v in fails.items():
+        for x in v:
+            fails2.setdefault(x, set()).add(k)
     cdef intptr_t counter = 0, i
     for i in range(idx.shape[0]-1):
         if idx[i] in fails2 and idx[i+1] in fails2[idx[i]]:
@@ -209,9 +210,9 @@ def argsort(im_, list thetas_, list tw0s_, bool return_fails=False):
       1. Wan Y and Shi D, 2007, "Joint exact histogram specification and image enhancement through
          the wavelet transform", IEEE Transcations on Image Processing, 16(9):2245-2250.
     """
-    from numpy import arange
+    from numpy import flatnonzero, concatenate
     cdef int nlvls = len(thetas_), nfltrs = 1 << im_.ndim, i
-    cdef intptr_t size = im_.size
+    cdef intptr_t start, stop, size = im_.size
     cdef list shapes = [im_.shape]
     for i in range(nlvls):
         shapes.append(tuple((x+1) // 2 for x in shapes[i]))
@@ -224,7 +225,11 @@ def argsort(im_, list thetas_, list tw0s_, bool return_fails=False):
         check_array('tw0s[%d]'%i, tw0s_[i], NPY_UINT8, shapes[i] + (nfltrs,))
 
     # Get the linear indices and the coordinate lookups
-    cdef intptr_t[::1] idx = arange(size)
+    cdef intptr_t[::1] idx = im_.argsort(None)
+    srt_ = im_.take(idx.base)
+    cdef intptr_t[::1] ranges = concatenate(([0], flatnonzero(srt_[1:] != srt_[:size-1])+1, [size]))
+    del srt_
+    #counts = np.unique(im.ravel()/255, return_counts=True)[1]
     cdef list coords_ = [get_coords(shape) for shape in shapes[:nlvls]]
 
     # Allocate memory for the levels of data
@@ -238,7 +243,6 @@ def argsort(im_, list thetas_, list tw0s_, bool return_fails=False):
         raise MemoryError()
 
     # Get data pointers
-    cdef double* im = <dbls>PyArray_DATA(im_)
     for i in range(nlvls):
         coords[i] = <intps>PyArray_DATA(coords_[i])
         thetas[i] = <dbls>PyArray_DATA(thetas_[i])
@@ -247,20 +251,23 @@ def argsort(im_, list thetas_, list tw0s_, bool return_fails=False):
     # Perform the sort
     cdef uv_map fails
     with nogil:
-        if return_fails:
-            if nfltrs == 4:
-                sort(&idx[0], &idx[size], Comp4FC(nlvls, im, coords, thetas, tw0s, fails))
+        for i in range(ranges.shape[0] - 1):
+            start = ranges[i]
+            stop = ranges[i+1]
+            if stop - start <= 1: continue
+            if not return_fails:
+                if nfltrs == 4:
+                    sort(&idx[start], &idx[stop], Comp4(nlvls, coords, thetas, tw0s))
+                elif nfltrs == 8:
+                    sort(&idx[start], &idx[stop], Comp8(nlvls, coords, thetas, tw0s))
+                else:
+                    sort(&idx[start], &idx[stop], Comp(nlvls, nfltrs, coords, thetas, tw0s))
+            elif nfltrs == 4:
+                sort(&idx[start], &idx[stop], Comp4FC(nlvls, coords, thetas, tw0s, fails))
             elif nfltrs == 8:
-                sort(&idx[0], &idx[size], Comp8FC(nlvls, im, coords, thetas, tw0s, fails))
+                sort(&idx[start], &idx[stop], Comp8FC(nlvls, coords, thetas, tw0s, fails))
             else:
-                sort(&idx[0], &idx[size], CompFC(nlvls, nfltrs, im, coords, thetas, tw0s, fails))
-        else:
-            if nfltrs == 4:
-                sort(&idx[0], &idx[size], Comp4(nlvls, im, coords, thetas, tw0s))
-            elif nfltrs == 8:
-                sort(&idx[0], &idx[size], Comp8(nlvls, im, coords, thetas, tw0s))
-            else:
-                sort(&idx[0], &idx[size], Comp(nlvls, nfltrs, im, coords, thetas, tw0s))
+                sort(&idx[start], &idx[stop], CompFC(nlvls, nfltrs, coords, thetas, tw0s, fails))
 
     # Free used memory
     free(coords)
@@ -271,9 +278,4 @@ def argsort(im_, list thetas_, list tw0s_, bool return_fails=False):
     if not return_fails: return idx.base
 
     # Compute number of failures
-    cdef dict fails_ = fails, fails2
-    fails2 = fails_.copy() # create a bi-directional lookup to speed up the lookups
-    for k, v in fails_.items():
-        for x in v:
-            fails2.setdefault(x, set()).add(k)
-    return idx.base, count_fails(idx, fails2)
+    return idx.base, count_fails(idx, fails)
