@@ -2,10 +2,9 @@
 Implements variation approach strict ordering for use with exact histogram equalization.
 """
 
-from collections.abc import Sequence
 from functools import lru_cache
 
-from numpy import asarray, empty, sqrt, log, divide, subtract, nonzero
+from numpy import asarray, empty, sqrt, divide, subtract, nonzero
 
 SQRT2I = 1/sqrt(2)
 SQRT3I = 1/sqrt(3)
@@ -98,8 +97,7 @@ def calc_info(im, niters=5, beta=0.1, alpha=0.05, gamma=None):
     eta = gamma.sum()
     if niters <= 0: raise ValueError('niters') # niters is R in [3]
     if beta <= 0 or beta >= 1/eta: raise ValueError('beta')
-    alpha_1, alpha_2 = alpha if isinstance(alpha, Sequence) else (alpha, alpha)
-    if alpha_1 <= 0 or alpha_2 <= 0: raise ValueError('alpha')
+    alpha_1, alpha_2 = __get_alpha(alpha)
 
     # Allocate temporaries
     u, t = im.astype(float), empty(im.shape)
@@ -241,6 +239,13 @@ def __create_gamma_dist(ndim):
     gamma[(1,)*ndim] = 0
     return gamma
 
+def __get_alpha(alpha):
+    """Get and check the alpha_1 and alpha_2 arguments from a single alpha argument."""
+    from collections.abc import Sequence
+    alpha_1, alpha_2 = alpha if isinstance(alpha, Sequence) else (alpha, alpha)
+    if alpha_1 <= 0 or alpha_2 <= 0: raise ValueError('alpha')
+    return alpha_1, alpha_2
+
 
 ##### Everything else is auxiliary and not needed except to help with choosing the parameters #####
 
@@ -252,6 +257,7 @@ def theta(t, alpha):
     Nikolova et al 2013, table 1, f3.
     Nikolova et al 2014, table 1, theta_2.
     """
+    from numpy import log
     assert alpha > 0
     t_abs = abs(t)
     return t_abs - alpha * log(1+t_abs/alpha)
@@ -393,8 +399,7 @@ def compute_c(im, beta, alpha, gamma=None):
     gamma = __get_gamma(gamma, im.ndim)
     eta = gamma.sum()
     if beta <= 0 or beta >= 1/eta: raise ValueError('beta')
-    alpha_1, alpha_2 = alpha if isinstance(alpha, Sequence) else (alpha, alpha)
-    if alpha_1 <= 0 or alpha_2 <= 0: raise ValueError('alpha')
+    alpha_1, alpha_2 = __get_alpha(alpha)
     z = compute_v(im, gamma) - 2*d_theta_inv(beta*eta, alpha_1)
     if z <= 0: raise ValueError('z')
     return d_theta(z, alpha_2)
@@ -439,7 +444,7 @@ def check_convergence(beta, alpha, gamma=CONNECTIVITY_N4, return_value=False):
     gamma = __check_gamma(gamma)
     eta, eta2 = gamma.sum(), (gamma*gamma).sum()
     if beta <= 0 or beta >= 1/eta: raise ValueError('beta')
-    alpha_1, alpha_2 = alpha if isinstance(alpha, Sequence) else (alpha, alpha)
+    alpha_1, alpha_2 = __get_alpha(alpha)
     if alpha_1 <= 0 or alpha_2 <= 0: raise ValueError('alpha')
     value = eta2*beta*d_d_theta_inv(beta*eta, alpha_1)*d2_theta(0, alpha_2)
     return value if return_value else (value < 1)
