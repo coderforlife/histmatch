@@ -416,18 +416,21 @@ def compute_optimal_alpha_1(beta, gamma=CONNECTIVITY_N4, delta=0.5):
     eta = __check_gamma(gamma).sum()
     if beta <= 0 or beta >= 1/eta: raise ValueError('beta')
     if delta <= 0: raise ValueError('delta')
-    return delta * (1 - abs(beta*eta)) / beta*eta
+    return delta * (1 / (beta*eta) - 1)
 
-def check_convergence(beta, alpha, gamma=CONNECTIVITY_N4):
+def check_convergence(beta, alpha, gamma=CONNECTIVITY_N4, return_value=False):
     """
     Check convergence of the fixed point algorithm, the following condition must be true:
-        2*eta2*beta*xi'(beta*eta, alpha_1)*theta''(0, alpha_2) < 1    [3 eq 10]
+        eta2*beta*xi'(beta*eta, alpha_1)*theta''(0, alpha_2) < 1    [3 eq 10]
     where:
         eta = sum(gamma)   [1 eq 10]
         eta2 = sum(gamma^2)
         gamma is the neighbor weights, (i.e. a CONNECTIVITY constant), default is CONNECTIVITY_N4
           which is only appropriate for 2D images
         alpha_2 equals alpha_1 if one alpha provided, provide a sequence to have different values
+
+    If return_value is given as True, the value that is computed which must be < 1 for convergence
+    is returned instead of a True or False value.
 
     REFERENCES:
      3. Nikolova M and Steidl G, 2014, "Fast Ordering Algorithm for Exact Histogram Specification"
@@ -438,14 +441,15 @@ def check_convergence(beta, alpha, gamma=CONNECTIVITY_N4):
     if beta <= 0 or beta >= 1/eta: raise ValueError('beta')
     alpha_1, alpha_2 = alpha if isinstance(alpha, Sequence) else (alpha, alpha)
     if alpha_1 <= 0 or alpha_2 <= 0: raise ValueError('alpha')
-    return 2*eta2*beta*d_d_theta_inv(beta*eta, alpha_1)*d2_theta(0, alpha_2) < 1
+    value = eta2*beta*d_d_theta_inv(beta*eta, alpha_1)*d2_theta(0, alpha_2)
+    return value if return_value else (value < 1)
 
 def compute_upper_beta(gamma=CONNECTIVITY_N4, alpha_1_2_ratio=1):
     """
     Computes the upper value of beta using:
-        2*eta2*beta*xi'(beta*eta, alpha_1)*theta''(0, alpha_2) < 1    [3 eq 10]
+        eta2*beta*xi'(beta*eta, alpha_1)*theta''(0, alpha_2) < 1    [3 eq 10]
     which simplifies to:
-        alpha_1/alpha_2 * 2*eta2*beta/(1-beta*eta)^2 < 1
+        alpha_1/alpha_2 * eta2*beta/(1-beta*eta)^2 < 1
     for the current theta where:
         eta = sum(gamma)   [1 eq 10]
         eta2 = sum(gamma^2)
