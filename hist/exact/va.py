@@ -11,12 +11,13 @@ SQRT2I = 1/sqrt(2)
 SQRT3I = 1/sqrt(3)
 
 # Baus et al 2013 eq 4 and fig 3
-CONNECTIVITY_N4 = asarray([[0, 1, 0], [1, 0, 1], [0, 1, 0]])
-CONNECTIVITY_N8 = asarray([[1, 1, 1], [1, 0, 1], [1, 1, 1]])
-CONNECTIVITY_N8_DIST = asarray([[SQRT2I, 1, SQRT2I], [1, 0, 1], [SQRT2I, 1, SQRT2I]])
+CONNECTIVITY_N4 = asarray([[0, 1, 0], [1, 0, 1], [0, 1, 0]]) # __create_gamma_min(2)
+CONNECTIVITY_N8 = asarray([[1, 1, 1], [1, 0, 1], [1, 1, 1]]) # __create_gamma_full(2)
+CONNECTIVITY_N8_DIST = asarray( # __create_gamma_dist(2)
+    [[SQRT2I, 1, SQRT2I], [1, 0, 1], [SQRT2I, 1, SQRT2I]])
 
-# Also have 3D connectivity
-CONNECTIVITY3_N6 = asarray([
+# Also support 3D connectivity
+CONNECTIVITY3_N6 = asarray([ # __create_gamma_min(3)
     [[0, 0, 0], [0, 1, 0], [0, 0, 0]],
     [[0, 1, 0], [1, 0, 1], [0, 1, 0]],
     [[0, 0, 0], [0, 1, 0], [0, 0, 0]]
@@ -31,12 +32,12 @@ CONNECTIVITY3_N18_DIST = asarray([
     [[SQRT2I, 1, SQRT2I], [1, 0, 1], [SQRT2I, 1, SQRT2I]],
     [[0, SQRT2I, 0], [SQRT2I, 1, SQRT2I], [0, SQRT2I, 0]]
     ])
-CONNECTIVITY3_N26 = asarray([
+CONNECTIVITY3_N26 = asarray([ # __create_gamma_full(3)
     [[1, 1, 1], [1, 1, 1], [1, 1, 1]],
     [[1, 1, 1], [1, 0, 1], [1, 1, 1]],
     [[1, 1, 1], [1, 1, 1], [1, 1, 1]]
     ])
-CONNECTIVITY3_N26_DIST = asarray([
+CONNECTIVITY3_N26_DIST = asarray([ # __create_gamma_dist(3)
     [[SQRT3I, SQRT2I, SQRT3I], [SQRT2I, 1, SQRT2I], [SQRT3I, SQRT2I, SQRT3I]],
     [[SQRT2I, 1, SQRT2I], [1, 0, 1], [SQRT2I, 1, SQRT2I]],
     [[SQRT3I, SQRT2I, SQRT3I], [SQRT2I, 1, SQRT2I], [SQRT3I, SQRT2I, SQRT3I]]
@@ -74,8 +75,10 @@ def calc_info(im, niters=5, beta=0.1, alpha=0.05, gamma=None):
 
     Their method has been adapted to work in 3D, including anisotropic data by adjusting gamma.
 
-    The value of gamma determines the connectivity. It defaults to CONNECTIVITY_N4 for 2D images and
-    CONNECTIVITY3_N6 for 3D images.
+    The value of gamma determines the connectivity. It can be a CONNECTIVITY* constant or None to
+    generate a minimal neighborhood (the default), 'full' for a fully connected neighborhood, 'dist'
+    for a fully connected neighborhood weighted by distance, or a custom n-D array with each
+    dimension equal to 3, a zero in the middle, no negative values, and fully symmetrical.
 
     REFERENCES:
      1. Baus F, Nikolova M, Steidl G, 2013, "Fully smoothed l1−TV models: bounds for the minimizers
@@ -91,14 +94,12 @@ def calc_info(im, niters=5, beta=0.1, alpha=0.05, gamma=None):
     # NOTE: This does not use the *_theta_* functions but instead has it solved out. If those
     # functions are changed this function will also need to be updated.
 
-    if gamma is None: gamma = CONNECTIVITY3_N6 if im.ndim == 3 else CONNECTIVITY_N4
-    gamma = __check_gamma(gamma)
+    gamma = __get_gamma(gamma, im.ndim)
     eta = gamma.sum()
     if niters <= 0: raise ValueError('niters') # niters is R in [3]
     if beta <= 0 or beta >= 1/eta: raise ValueError('beta')
     alpha_1, alpha_2 = alpha if isinstance(alpha, Sequence) else (alpha, alpha)
     if alpha_1 <= 0 or alpha_2 <= 0: raise ValueError('alpha')
-    if gamma.ndim != im.ndim: raise ValueError('gamma and im must have the same dimension')
 
     # Allocate temporaries
     u, t = im.astype(float), empty(im.shape)
@@ -140,9 +141,10 @@ def __get_g_info(gamma):
 @lru_cache(maxsize=None)
 def __is_reflection_coord(coord):
     """Reflection coordinates have a 2 followed by 0 or more trailing 1s."""
-    while coord[-1] == 1:
-        coord = coord[:-1]
-    return coord[-1] == 2
+    i = len(coord)-1
+    while coord[i] == 1:
+        i -= 1
+    return coord[i] == 2
 
 def __calculate_d_Phi(u, t, G_info, alpha_2, d_phi, denom): # pylint: disable=too-many-arguments
     """
@@ -184,22 +186,60 @@ def __check_gamma(gamma):
         using a variational approach", J of Mathematical Imaging and Vision, 46(3):309-325
     """
     gamma = asarray(gamma)
-    if gamma.ndim == 2:
-        if not __check_gamma_2D(gamma): raise ValueError('gamma')
-    else: # gamma.ndim == 3:
-        if (gamma.shape != (3, 3, 3) or (gamma < 0).any() or not __check_gamma_2D(gamma[1]) or
-                (gamma[0] != gamma[2, ::-1, ::-1]).any()):
-            raise ValueError('gamma')
+    # Check that all dimension lengths are 3, there are no negative values, and the middle is 0
+    ndim = gamma.ndim
+    if any(x != 3 for x in gamma.shape) or (gamma < 0).any() or gamma[(1,)*ndim] != 0:
+        raise ValueError('gamma')
+    # Check for symmetry along each axis
+    slc_none = slice(None)
+    slc_start = slice(2) # first half of the matrix (rounded up)
+    slc_end = slice(2, 0, -1) # reversed second half of the matrix (rounded up)
+    if any((gamma[tuple(slc_none if i != j else slc_start for j in range(ndim))] !=
+            gamma[tuple(slc_none if i != j else slc_end for j in range(ndim))]).any()
+           for i in range(ndim)):
+        raise ValueError('gamma')
     return gamma
 
 # @lru_cache(maxsize=None) # gamma is unhashable...
-def __check_gamma_2D(gamma):
+def __get_gamma(gamma, ndim):
     """
-    Simplified version of __check_gamma for only 3x3 matrices. Argument must already be array.
-    Returns True/False instead of raising exception.
+    Gets and checks the value for gamma (either the one given or a default one of the given
+    dimension if None). Also ensures that gamma has the same dimension as ndim.
     """
-    return (gamma.shape == (3, 3) and (gamma >= 0).all() and gamma[1, 1] == 0 and
-            gamma[0, 1] == gamma[2, 1] and (gamma[:, 0] == gamma[::-1, 2]).all())
+    if gamma is None: return __create_gamma_min(ndim)
+    if isinstance(gamma, str):
+        if gamma == 'min': return __create_gamma_min(ndim)
+        if gamma == 'full': return __create_gamma_full(ndim)
+        if gamma == 'dist': return __create_gamma_dist(ndim)
+        raise ValueError('gamma')
+    if gamma.ndim != ndim: raise ValueError('gamma and im must have the same dimension')
+    return __check_gamma(gamma)
+
+@lru_cache(maxsize=None)
+def __create_gamma_min(ndim):
+    """Creates gamma that represents connected to a minimal set of neighbors."""
+    from numpy import ogrid
+    return (sum([x*x for x in ogrid[(slice(-1, 2),)*ndim]]) == 1).astype(float)
+
+@lru_cache(maxsize=None)
+def __create_gamma_full(ndim):
+    """
+    Creates gamma that represents fully connected to all neighbors (1s except the middle value).
+    """
+    from numpy import ones
+    gamma = ones((3,)*ndim)
+    gamma[(1,)*ndim] = 0
+    return gamma
+
+@lru_cache(maxsize=None)
+def __create_gamma_dist(ndim):
+    """Creates gamma that represents connected to all neighbors weighted by their distance."""
+    from numpy import ogrid
+    gamma = sqrt(sum([x*x for x in ogrid[(slice(-1, 2),)*ndim]]))
+    gamma[(1,)*ndim] = 1
+    gamma = 1/gamma
+    gamma[(1,)*ndim] = 0
+    return gamma
 
 
 ##### Everything else is auxiliary and not needed except to help with choosing the parameters #####
@@ -268,8 +308,9 @@ def compute_v(im, gamma=None):
 
     where i is restricted to pixels that are local minima or maxima.
 
-    gamma is the neighbor weights, (i.e. a CONNECTIVITY constant), default is CONNECTIVITY_N4 for
-    2D images and CONNECTIVITY3_N6 for 3D images.
+    gamma is the neighbor weights, (i.e. a CONNECTIVITY constant) or one of the options allowable
+    for calc_info (i.e. None, 'full', or 'dist'). Default is None which generates a minimal
+    neighborhood.
 
     REFERENCES:
      1. Baus F, Nikolova M, Steidl G, 2013, "Fully smoothed l1−TV models: bounds for the minimizers
@@ -299,9 +340,7 @@ def compute_v(im, gamma=None):
     from numpy import abs, greater, less # pylint: disable=redefined-builtin
 
     # Perform checks
-    if gamma is None: gamma = CONNECTIVITY3_N6 if im.ndim == 3 else CONNECTIVITY_N4
-    gamma = __check_gamma(gamma)
-    if gamma.ndim != im.ndim: raise ValueError('gamma and im must have the same dimension')
+    gamma = __get_gamma(gamma, im.ndim)
 
     # Work with non-zero gamma values
     gamma_nz = gamma[gamma != 0]
@@ -311,7 +350,11 @@ def compute_v(im, gamma=None):
     im = im.astype(float, copy=False)
 
     # Compute all differences for all non-zero gammas
-    diffs = __compute_v_diffs_2(im, gamma) if im.ndim == 2 else __compute_v_diffs_3(im, gamma)
+    internal = im[(slice(1, -1),)*im.ndim]
+    gamma_nz_pos = nonzero(gamma)
+    diffs = empty((len(gamma_nz_pos[0]),) + internal.shape)
+    for i, pos in enumerate(zip(*gamma_nz_pos)):
+        subtract(internal, im[tuple(slice(x, x+n-2) for x, n in zip(pos, im.shape))], diffs[i])
 
     # Only use pixels where the pixel is lower or greater than all neighbors
     tmp = empty(diffs.shape, bool)
@@ -325,25 +368,6 @@ def compute_v(im, gamma=None):
 
     # Compute the max of all of the mins of each remaining pixel
     return diffs.min(0, out=diffs[0]).max()
-
-def __compute_v_diffs_2(im, gamma):
-    """Compute diffs for compute_v for 2D images"""
-    h, w = im.shape
-    internal = im[1:-1, 1:-1]
-    gamma_nz_pos = nonzero(gamma)
-    diffs = empty((len(gamma_nz_pos[0]),) + internal.shape)
-    for i, (row, col) in enumerate(zip(*gamma_nz_pos)):
-        subtract(internal, im[row:h+row-2, col:w+col-2], diffs[i])
-    return diffs
-
-def __compute_v_diffs_3(im, gamma):
-    """Compute diffs for compute_v for 3D images"""
-    h, w, d = im.shape
-    internal = im[1:-1, 1:-1, 1:-1]
-    gamma_nz_pos = nonzero(gamma)
-    diffs = empty((len(gamma_nz_pos[0]),) + internal.shape)
-    for i, (row, col, depth) in enumerate(zip(*gamma_nz_pos)):
-        subtract(internal, im[row:h+row-2, col:w+col-2, depth:d+depth-2], diffs[i])
 
 def compute_c(im, beta, alpha, gamma=None):
     """
@@ -366,8 +390,7 @@ def compute_c(im, beta, alpha, gamma=None):
      2. Nikolova M, Wen Y-W, and Chan R, 2013, "Exact histogram specification for digital images
         using a variational approach", J of Mathematical Imaging and Vision, 46(3):309-325
     """
-    if gamma is None: gamma = CONNECTIVITY3_N6 if im.ndim == 3 else CONNECTIVITY_N4
-    gamma = __check_gamma(gamma)
+    gamma = __get_gamma(gamma, im.ndim)
     eta = gamma.sum()
     if beta <= 0 or beta >= 1/eta: raise ValueError('beta')
     alpha_1, alpha_2 = alpha if isinstance(alpha, Sequence) else (alpha, alpha)
