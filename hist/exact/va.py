@@ -4,7 +4,7 @@ Implements variation approach strict ordering for use with exact histogram equal
 
 from functools import lru_cache
 
-from numpy import asarray, empty, sqrt, divide, subtract, nonzero
+from numpy import asarray, empty, sqrt, subtract, nonzero
 
 SQRT2I = 1/sqrt(2)
 SQRT3I = 1/sqrt(3)
@@ -45,7 +45,7 @@ del SQRT2I, SQRT3I
 
 # pylint: disable=invalid-name
 
-def calc_info(im, niters=5, beta=0.1, alpha=0.05, gamma=None):
+def calc_info(im, niters=5, beta=None, alpha=None, gamma=None):
     """
     Assign strict ordering to image pixels. The returned value is the same shape as the image but
     with values for each pixel that can be used for strict ordering.
@@ -63,11 +63,12 @@ def calc_info(im, niters=5, beta=0.1, alpha=0.05, gamma=None):
         xi(t)      = (theta')^(-1) (t) = alpha * y / (1 - |y|)
         xi'(t)     = alpha / (1 - |y|)^2
 
-    beta, alpha_1, and alpha_2 default to 0.1, 0.05, 0.05 respectively as chosen in [3]. See the
-    2013 paper, section III, for choosing the parameter values. In general keeping alphas small is
-    important. The values are dependent on eta (the connectivity) and the image contents in attempt
-    to make c in (1-1e-5, 1). Various other functions in this module can be used to help calculate
-    the parameter values based on the image, connectivity, and other values.
+    beta, alpha_1, and alpha_2 default to 0.4/eta, 0.1/eta, and 0.1/eta respectively as chosen in
+    [3] but generalized to other neighborhoods. See [2] section III, for choosing the parameter
+    values. In general keeping alphas small is important. The values are dependent on eta (the
+    connectivity) and the image contents in attempt to make c in (1-1e-5, 1). Various other
+    functions in this module can be used to help calculate the parameter values based on the image,
+    connectivity, and other values.
 
     If only one alpha is provided, it is used for both alpha_1 and alpha_2. If a sequence is given
     it is used for both of the alphas.
@@ -87,17 +88,14 @@ def calc_info(im, niters=5, beta=0.1, alpha=0.05, gamma=None):
      3. Nikolova M and Steidl G, 2014, "Fast Ordering Algorithm for Exact Histogram Specification"
         IEEE Trans. on Image Processing, 23(12):5274-5283
     """
-    from numpy import abs #pylint: disable=redefined-builtin
+    from numpy import abs, divide #pylint: disable=redefined-builtin
     # this does not use pixels outside of the image at all
 
     # NOTE: This does not use the *_theta_* functions but instead has it solved out. If those
     # functions are changed this function will also need to be updated.
 
-    gamma = __get_gamma(gamma, im.ndim)
-    eta = gamma.sum()
+    gamma, _, beta, alpha_1, alpha_2 = __check_args(gamma, beta, alpha, im.ndim)
     if niters <= 0: raise ValueError('niters') # niters is R in [3]
-    if beta <= 0 or beta >= 1/eta: raise ValueError('beta')
-    alpha_1, alpha_2 = __get_alpha(alpha)
 
     # Allocate temporaries
     u, t = im.astype(float), empty(im.shape)
@@ -239,12 +237,43 @@ def __create_gamma_dist(ndim):
     gamma[(1,)*ndim] = 0
     return gamma
 
-def __get_alpha(alpha):
-    """Get and check the alpha_1 and alpha_2 arguments from a single alpha argument."""
+def __get_beta(beta, eta):
+    """
+    Get and check the beta argument. The argument can be None (which then uses 0.4/eta) or a single
+    value. The value must be positive and less than 1/eta.
+    """
+    if beta is None: return 0.4/eta
+    if beta <= 0 or beta >= 1/eta: raise ValueError('beta')
+    return beta
+
+def __check_args(gamma, beta, alpha, ndim):
+    """
+    Get and check the gamma, beta, and alpha arguments returning gamma, eta, beta, alpha_1, and
+    alpha_2.
+
+    The gamma argument is checked with __get_gamma(). eta is computed as sum(gamma). The beta
+    argument is checked with __get_beta().
+
+    The alpha argument becomes the alpha_1 and alpha_2 values. The argument can be None (which then
+    uses 0.1/eta for both), a single value (which uses the same value for both), or a sequence of 2
+    values. Both values must be positive.
+    """
+    # Check gamma and compute eta
+    gamma = __get_gamma(gamma, ndim)
+    eta = gamma.sum()
+
+    # Check alpha
     from collections.abc import Sequence
-    alpha_1, alpha_2 = alpha if isinstance(alpha, Sequence) else (alpha, alpha)
+    if alpha is None:
+        alpha_1 = alpha_2 = 0.1/eta
+    elif isinstance(alpha, Sequence):
+        if alpha <= 0: raise ValueError('alpha')
+        alpha_1 = alpha_2 = alpha
+    else:
+        alpha_1, alpha_2 = alpha
     if alpha_1 <= 0 or alpha_2 <= 0: raise ValueError('alpha')
-    return alpha_1, alpha_2
+
+    return gamma, eta, __get_beta(beta, eta), alpha_1, alpha_2
 
 
 ##### Everything else is auxiliary and not needed except to help with choosing the parameters #####
@@ -375,7 +404,7 @@ def compute_v(im, gamma=None):
     # Compute the max of all of the mins of each remaining pixel
     return diffs.min(0, out=diffs[0]).max()
 
-def compute_c(im, beta, alpha, gamma=None):
+def compute_c(im, beta=None, alpha=None, gamma=None):
     """
     Computes c = phi'(z, alpha_2)    [1 eq 15 & 22; 2 eq 14]
     where:
@@ -390,27 +419,30 @@ def compute_c(im, beta, alpha, gamma=None):
     The c value must be <1.0 but should be very close to 1.0 (between 1.0-1e-5 and 1.0) for a good
     set of parameters for a given image.
 
+    Instead of an image, the first argument may also be a tuple of (v_f and ndim) for an image.
+
     REFERENCES:
      1. Baus F, Nikolova M, Steidl G, 2013, "Fully smoothed l1−TV models: bounds for the minimizers
         and parameter choice", Tech. report, v3, http://hal.archives-ouvertes.fr/hal-00722743
      2. Nikolova M, Wen Y-W, and Chan R, 2013, "Exact histogram specification for digital images
         using a variational approach", J of Mathematical Imaging and Vision, 46(3):309-325
     """
-    gamma = __get_gamma(gamma, im.ndim)
-    eta = gamma.sum()
-    if beta <= 0 or beta >= 1/eta: raise ValueError('beta')
-    alpha_1, alpha_2 = __get_alpha(alpha)
-    z = compute_v(im, gamma) - 2*d_theta_inv(beta*eta, alpha_1)
+    from collections.abc import Sequence
+    v_f, ndim = im if isinstance(im, Sequence) else (None, im.ndim)
+    gamma, eta, beta, alpha_1, alpha_2 = __check_args(gamma, beta, alpha, ndim)
+    if v_f is None: v_f = compute_v(im, gamma)
+    z = v_f - 2*d_theta_inv(beta*eta, alpha_1)
     if z <= 0: raise ValueError('z')
     return d_theta(z, alpha_2)
 
-def compute_optimal_alpha_1(beta, gamma=CONNECTIVITY_N4, delta=0.5):
+def compute_optimal_alpha_1(beta=None, gamma=CONNECTIVITY_N4, delta=0.5):
     """
     Computes the optimal alpha_1 value for a given beta and gamma as given by the solution of:
         (theta')^(-1) (beta*eta, alpha_1) = delta  [1 eq 21]
     Use delta=0.5 (default) to ensure the pixel value order is kept. eta = sum(gamma)* [1 eq 10].
 
-    The default gamma is CONNECTIVITY_N4 which is only appropriate for 2D images.
+    The default beta is 0.4/eta. The default gamma is CONNECTIVITY_N4 which is only appropriate for
+    2D images.
 
     REFERENCES:
      1. Baus F, Nikolova M, Steidl G, 2013, "Fully smoothed l1−TV models: bounds for the minimizers
@@ -419,34 +451,35 @@ def compute_optimal_alpha_1(beta, gamma=CONNECTIVITY_N4, delta=0.5):
     # NOTE: This does not use the d_theta_inv function but instead has it solved out. If that
     # function is changed this function will also need to be updated. See [1 table 2].
     eta = __check_gamma(gamma).sum()
-    if beta <= 0 or beta >= 1/eta: raise ValueError('beta')
+    beta = __get_beta(beta, eta)
     if delta <= 0: raise ValueError('delta')
     return delta * (1 / (beta*eta) - 1)
 
-def check_convergence(beta, alpha, gamma=CONNECTIVITY_N4, return_value=False):
+def check_convergence(beta=None, alpha=None, gamma=CONNECTIVITY_N4, return_value=False):
     """
     Check convergence of the fixed point algorithm, the following condition must be true:
         eta2*beta*xi'(beta*eta, alpha_1)*theta''(0, alpha_2) < 1    [3 eq 10]
     where:
         eta = sum(gamma)   [1 eq 10]
         eta2 = sum(gamma^2)
-        gamma is the neighbor weights, (i.e. a CONNECTIVITY constant), default is CONNECTIVITY_N4
-          which is only appropriate for 2D images
+        gamma is the neighbor weights, (i.e. a CONNECTIVITY constant)
         alpha_2 equals alpha_1 if one alpha provided, provide a sequence to have different values
+
+    The default beta is 0.4/eta. The deafult alphas are 0.1/eta. The default gamma is
+    CONNECTIVITY_N4 which is only appropriate for 2D images.
 
     If return_value is given as True, the value that is computed which must be < 1 for convergence
     is returned instead of a True or False value.
+
+    This check is significantly restrictive as it makes several assumptions including that the image
+    is a constant graylevel so values slightly larger than 1 will likely work. See [3 Remark 1].
 
     REFERENCES:
      3. Nikolova M and Steidl G, 2014, "Fast Ordering Algorithm for Exact Histogram Specification"
         IEEE Trans. on Image Processing, 23(12):5274-5283
     """
-    gamma = __check_gamma(gamma)
-    eta, eta2 = gamma.sum(), (gamma*gamma).sum()
-    if beta <= 0 or beta >= 1/eta: raise ValueError('beta')
-    alpha_1, alpha_2 = __get_alpha(alpha)
-    if alpha_1 <= 0 or alpha_2 <= 0: raise ValueError('alpha')
-    value = eta2*beta*d_d_theta_inv(beta*eta, alpha_1)*d2_theta(0, alpha_2)
+    gamma, eta, beta, alpha_1, alpha_2 = __check_args(gamma, beta, alpha, gamma.ndim)
+    eta2 = (gamma*gamma).sum()
     return value if return_value else (value < 1)
 
 def compute_upper_beta(gamma=CONNECTIVITY_N4, alpha_1_2_ratio=1):
