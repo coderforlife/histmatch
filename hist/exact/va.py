@@ -455,7 +455,7 @@ def compute_optimal_alpha_1(beta=None, gamma=CONNECTIVITY_N4, delta=0.5):
 def check_convergence(beta=None, alpha=None, gamma=CONNECTIVITY_N4, return_value=False):
     """
     Check convergence of the fixed point algorithm, the following condition must be true:
-        eta2*beta*xi'(beta*eta, alpha_1)*theta''(0, alpha_2) < 1    [3 eq 10]
+        2*eta2*beta*xi'(beta*eta, alpha_1)*theta''(0, alpha_2) < 1    [3 eq 10]
     where:
         eta = sum(gamma)   [1 eq 10]
         eta2 = sum(gamma^2)
@@ -477,14 +477,15 @@ def check_convergence(beta=None, alpha=None, gamma=CONNECTIVITY_N4, return_value
     """
     gamma, eta, beta, alpha_1, alpha_2 = __check_args(gamma, beta, alpha, gamma.ndim)
     eta2 = (gamma*gamma).sum()
+    value = 2*eta2*beta*d_d_theta_inv(beta*eta, alpha_1)*d2_theta(0, alpha_2)
     return value if return_value else (value < 1)
 
 def compute_upper_beta(gamma=CONNECTIVITY_N4, alpha_1_2_ratio=1):
     """
     Computes the upper value of beta using:
-        eta2*beta*xi'(beta*eta, alpha_1)*theta''(0, alpha_2) < 1    [3 eq 10]
+        2*eta2*beta*xi'(beta*eta, alpha_1)*theta''(0, alpha_2) < 1    [3 eq 10]
     which simplifies to:
-        alpha_1/alpha_2 * eta2*beta/(1-beta*eta)^2 < 1
+        alpha_1/alpha_2 * 2*eta2*beta/(1-beta*eta)^2 < 1
     for the current theta where:
         eta = sum(gamma)   [1 eq 10]
         eta2 = sum(gamma^2)
@@ -492,6 +493,10 @@ def compute_upper_beta(gamma=CONNECTIVITY_N4, alpha_1_2_ratio=1):
           which is only appropriate for 2D images
 
     The default assumes alpha_1 == alpha_2. If not, specify alpha_1/alpha_2 as alpha_1_2_ratio.
+
+    This upper bound is significantly restrictive as it makes several assumptions including that the
+    image is a constant graylevel so values slightly larger than the computed value will likely
+    work. See [3 Remark 1].
 
     REFERENCES:
      3. Nikolova M and Steidl G, 2014, "Fast Ordering Algorithm for Exact Histogram Specification"
