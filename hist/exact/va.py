@@ -377,10 +377,6 @@ def compute_v(im, gamma=None):
     # Perform checks
     gamma = __get_gamma(gamma, im.ndim)
 
-    # Work with non-zero gamma values
-    gamma_nz = gamma[gamma != 0]
-    if gamma_nz.size == 0: return 0
-
     # Will work with everything as floats
     im = im.astype(float, copy=False)
 
@@ -396,10 +392,11 @@ def compute_v(im, gamma=None):
     local_max_min = greater(diffs, 0, out=tmp).all(0)
     local_max_min |= less(diffs, 0, out=tmp).all(0, out=tmp[0])
     diffs = diffs[:, local_max_min]
+    if diffs.size == 0: return 0 # no local minimums or maximums?
 
     # Compute gamma*|diffs|
     abs(diffs, diffs)
-    diffs *= gamma_nz[:, None]
+    diffs *= gamma[gamma != 0][:, None]
 
     # Compute the max of all of the mins of each remaining pixel
     return diffs.min(0, out=diffs[0]).max()
