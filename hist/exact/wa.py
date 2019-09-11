@@ -4,7 +4,7 @@ Implements wavelet approach strict ordering for use with exact histogram equaliz
 
 from itertools import product
 
-def calc_info(im, nlevels=2, wavelet='haar', return_fails=False):
+def calc_info(im, nlevels=2, wavelet='haar', scale_coeffs=False, return_fails=False):
     """
     Perform exact histogram equalization using the wavelet approach as defined by [1]. Unlike the
     other exact histogram equalization methods this returns already sorted indices as a 1D array
@@ -18,6 +18,10 @@ def calc_info(im, nlevels=2, wavelet='haar', return_fails=False):
     unlikely to have been implemented correctly in any of them due to the complex sorting required.
     In some papers this is obvious by the way they reference the data (for example saying that k=9
     and a standard strict ordering is performed).
+
+    The argument wavelet controls which wavelet is used (defaulting to Haar) and scale_coeffs
+    controls if the coefficients should be scaled to be more directly comparable (defaulting to
+    False to match the original paper).
 
     Due to the complexity of this method and the various confusing parts of the original paper, this
     is a best effort to do it correctly but may still be incorrect.
@@ -39,12 +43,12 @@ def calc_info(im, nlevels=2, wavelet='haar', return_fails=False):
     im = im / float(get_dtype_max(im.dtype))
 
     # Compute the values needed to sort
-    thetas, tw0s = __compute_data(im, Wavelet(wavelet), nlevels)
+    thetas, tw0s = __compute_data(im, Wavelet(wavelet), nlevels, scale_coeffs)
 
     # Perform the sorting
     return argsort(im, thetas, tw0s, return_fails)
 
-def __compute_data(im, wavelet, nlevels=2):
+def __compute_data(im, wavelet, nlevels=2, scale_coeffs=False):
     """
     Compute all of the subband coefficient data for the image using the given wavelet. This returns
     two lists one with the sorted |theta_uij| values and the other with the theta_uij*w_uij_u > 0
@@ -61,7 +65,7 @@ def __compute_data(im, wavelet, nlevels=2):
     for _ in range(nlevels):
         # Compute the coefficients
         theta = __compute_coeffs(im, wavelet)
-        theta /= scales
+        if scale_coeffs: theta /= scales
 
         # Compute the theta*w > 0 conditions
         tw0 = __compute_positives(im.shape, theta, filters)
