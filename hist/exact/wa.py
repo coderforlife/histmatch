@@ -121,8 +121,9 @@ def __compute_positives(shape, theta, filters):
     tw0 = empty(shape + (len(filters),), bool)
     for offset in product((0, 1), repeat=len(shape)):
         f_slcs = (slice(None),) + offset
-        tw_slcs = tuple(slice(x, None, 2) for x in offset)
-        greater(theta * filters[f_slcs], 0, tw0[tw_slcs])
+        tw_slcs = tuple(slice(off, None, 2) for off in offset)
+        th_slcs = tuple(slice(-1 if x%2 and off else None) for x, off in zip(shape, offset))
+        greater(theta[th_slcs] * filters[f_slcs], 0, tw0[tw_slcs])
     return tw0.view(uint8)
 
 def __sort_level(theta, tw0):
@@ -135,6 +136,8 @@ def __sort_level(theta, tw0):
     from numpy import take_along_axis
     order = theta.argsort(-1)[..., ::-1] # descending order
     theta = take_along_axis(theta, order, -1)
-    for slc in product((slice(0, None, 2), slice(1, None, 2)), repeat=tw0.ndim-1):
-        tw0[slc] = take_along_axis(tw0[slc], order, -1)
+    for offset in product((0, 1), repeat=tw0.ndim-1):
+        tw_slcs = tuple(slice(off, None, 2) for off in offset)
+        ord_slcs = tuple(slice(-1 if x%2 and off else None) for x, off in zip(tw0.shape, offset))
+        tw0[tw_slcs] = take_along_axis(tw0[tw_slcs], order[ord_slcs], -1)
     return theta, tw0
