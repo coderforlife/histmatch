@@ -20,29 +20,55 @@ def add_kwargs_arg(parser):
 def add_input_image(parser):
     """
     Add a required input argument and an optional --float argument. Use the open_input_image
-    function to read the image.
+    function to read the image. This supports filenames with glob wildcards or directories to read a
+    series of images in as a 3D image.
     """
-    parser.add_argument('input', help='input image file (including .npy files)')
+    parser.add_argument('input', help='input image file (including .npy, .npy.gz, and directories/wildcard names for 3D images)')
     parser.add_argument('--float', action='store_true', help='convert image to float')
 
-def open_input_image(args):
+def open_input_image(args_or_filename, conv_to_float=False):
     """
     Opens the args.input image, converting to float is args.float is True. If the image filename
-    can end with .npy in which case it is directly loaded. Otherwise imageio is used to load the
-    image and if it is color the mean of the color channels is used. You can use add_input_image to
-    setup the parser arguments for this function.
+    ends with .npy or .npy.gz then it is directly loaded. Otherwise imageio is used to load the
+    image and if it is color the mean of the color channels is used. If the filename does not
+    exist and includes wildcard characters (? * []) then it is assumed to be a glob pattern to load
+    a 3D image from. You can use add_input_image to setup the parser arguments for this function. 
     """
+    import os
+    from glob import glob
+    from numpy import stack
+    if isinstance(args_or_filename, str):
+        filename = args_or_filename
+    else:
+        filename = args_or_filename.input
+        conv_to_float = conv_to_float or args_or_filename.float
+    if os.path.isdir(filename):
+        filenames = os.listdir(filename)
+    elif not os.path.exists(filename) and ('?' in filename or '*' in filename or
+                                           ('[' in filename and ']' in filename)):
+        filenames = glob(filename)
+    else:
+        return __load_image(filename, conv_to_float)
+    filenames.sort()
+    ims = [__load_image(filename, conv_to_float) for filename in filenames]
+    return stack(ims)
+
+def __load_image(filename, conv_to_float=False):
+    """Loads a single image from the filename taking care of color data and conversion to float."""
+    import gzip
     import imageio
     from numpy import load
     from hist.util import as_float
-    if args.input.endswith('.npy'):
-        im = load(args.input)
+    if filename.endswith('.npy.gz'):
+        with gzip.GzipFile(filename, 'rb') as f:
+            im = load(f)
+    elif filename.endswith('.npy'):
+        im = load(filename)
     else:
-        im = imageio.imread(args.input)
+        im = imageio.imread(filename)
         if im.ndim != 2: im = im.mean(2)
-    if args.float: im = as_float(im)
+    if conv_to_float: im = as_float(im)
     return im
-
 
 __CONVERSIONS = {
     'nan': nan,
