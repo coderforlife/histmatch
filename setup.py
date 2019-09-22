@@ -2,16 +2,16 @@
 Installs the histogram tools module.
 """
 
-#from os.path import join, abspath, dirname
+from os.path import join, abspath, dirname
 from setuptools import setup, find_packages
 from Cython.Build import cythonize
 
 setup(
     name='histeq',
     version='0.1.0',
-    #description='...',
-    #long_description=open(join(abspath(dirname(__file__)), 'README.md'), encoding='utf-8').read(),
-    #long_description_content_type='text/markdown',
+    description='Image Histogram Equalization Tools',
+    long_description=open(join(abspath(dirname(__file__)), 'README.md'), encoding='utf-8').read(),
+    long_description_content_type='text/markdown',
     #url='...',
     author='Jeffrey Bush',
     author_email='bushj@moravian.edu',
@@ -30,7 +30,7 @@ setup(
     install_requires=['imageio', 'numpy>=1.15', 'scipy>=1', 'cython>=0.28'],
     extras_require={'opt': ['pyfftw', 'PyWavelets']},
     ext_modules=cythonize('hist/exact/*.pyx'),
-    #package_data={'hist': ['*.c'],},
+    package_data={'hist': ['*.hpp','*.pxd','*.pyx']},
     #entry_points={
     #    'console_scripts': [
     #        'metric_battery=hist:metric_battery:main',
