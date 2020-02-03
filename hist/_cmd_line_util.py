@@ -43,7 +43,7 @@ def open_input_image(args_or_filename, conv_to_float=False):
         filename = args_or_filename.input
         conv_to_float = conv_to_float or args_or_filename.float
     if os.path.isdir(filename):
-        filenames = os.listdir(filename)
+        filenames = [os.path.join(filename, image) for image in os.listdir(filename)]
     elif not os.path.exists(filename) and ('?' in filename or '*' in filename or
                                            ('[' in filename and ']' in filename)):
         filenames = glob(filename)

@@ -72,8 +72,7 @@ def get_dtype_max(dt):
 
 def get_im_min_max(im):
     """Gets the min and max values for an image or an image dtype."""
-    from numpy import ndarray
-    if not isinstance(im, ndarray):
+    if not hasattr(im, 'dtype'):
         return get_dtype_min_max(im)
     dt = im.dtype
     if dt.kind != 'f':
@@ -148,15 +147,15 @@ def is_power_of_2(val):
     """Returns True if an integer is a power of 2. Only works for x > 0."""
     return not val & (val-1)
 
-def tuple_set(base, values, inds):
+def tuple_set(base, values, indices):
     """
     Creates a new tuple with the given values put at indices and otherwise the same as base. The
-    list of inds must be in sorted order.
+    list of indices must be in sorted order.
     """
-    new = base[:inds[0]]
-    for i in range(len(inds)-1):
-        new += (values[i],) + base[inds[i]+1:inds[i+1]]
-    return new + (values[-1],) + base[inds[-1]+1:]
+    new = base[:indices[0]]
+    for i in range(len(indices)-1):
+        new += (values[i],) + base[indices[i]+1:indices[i+1]]
+    return new + (values[-1],) + base[indices[-1]+1:]
 
 def prod(iterable):
     """Product of all values in an iterable, like sum() but for multiplication."""

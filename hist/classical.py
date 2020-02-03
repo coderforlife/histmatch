@@ -55,29 +55,32 @@ def histeq_trans(h_src, h_dst, dt):
     This is really just one-half of histeq, see it for more details.
     """
     from numbers import Integral
-    from numpy import tile, vstack
+    from numpy import tile, vstack, asanyarray
     from .util import EPS_SQRT
 
     dt = dtype(dt)
     if dt.base != dt or dt.kind not in 'iuf': raise ValueError("Unsupported data-type")
     if dt.kind == 'i': dt = dtype(dt.byteorder+'u'+str(dt.itemsize))
 
-    h_src = h_src.ravel()/sum(h_src)
-    h_src_cdf = h_src.cumsum()
-    nbins_src = len(h_src)
+    # Prepare the source histogram
+    h_src = h_src.ravel()/h_src.sum()
 
-    h_dst = tile(1/h_dst, h_dst) if isinstance(h_dst, Integral) else h_dst.ravel()/sum(h_dst)
-    h_dst_cdf = h_dst.cumsum()
-    nbins_dst = len(h_dst)
+    # Prepare the destination histogram
+    if isinstance(h_dst, Integral):
+        h_dst = int(h_dst)
+        h_dst = tile(1/h_dst, h_dst)
+    else:
+        h_dst = h_dst.ravel()/h_dst.sum()
 
-    if nbins_dst < 2 or nbins_src < 2: raise ValueError('Invalid histograms')
+    if h_dst.size < 2 or h_src.size < 2: raise ValueError('Invalid histograms')
 
+    # Compute the transform
     xx = vstack((h_src, h_src)) # pylint: disable=invalid-name
     xx[0, -1], xx[1, 0] = 0.0, 0.0
-    tol = tile(xx.min(0)/2.0, (nbins_dst, 1))
-    err = tile(h_dst_cdf, (nbins_src, 1)).T - tile(h_src_cdf, (nbins_dst, 1)) + tol
+    tol = tile(xx.min(0)/2.0, (h_dst.size, 1))
+    err = tile(h_dst.cumsum(), (h_src.size, 1)).T - tile(h_src.cumsum(), (h_dst.size, 1)) + tol
     err[err < -EPS_SQRT] = 1.0
-    transform = err.argmin(0)*(get_dtype_max(dt)/(nbins_dst-1.0))
+    transform = err.argmin(0)*(get_dtype_max(dt)/(h_dst.size-1.0))
     transform = transform.round(out=transform).astype(dt, copy=False)
     return transform
 
@@ -108,7 +111,8 @@ def __histeq_apply(im, transform):
         idx = im
     else:
         # scale the indices
-        idx = (im*(float(len(transform)-1)/nlevels)).round(out=empty(im.shape, dtype=intp))
+        idx = im*(float(len(transform)-1)/nlevels)
+        idx = rint(idx, out=empty(im.shape, dtype=intp), casting='unsafe')
     return __restore_signed(transform.take(idx), orig_dt)
 
 def __as_unsigned(im):
@@ -116,11 +120,10 @@ def __as_unsigned(im):
     If the image is signed integers then it is converted to unsigned. The image and the original
     dtype are returned.
     """
-    orig_dt = im.dtype
-    if orig_dt.kind == 'i':
-        im = im.view(dtype(orig_dt.byteorder+'u'+str(orig_dt.itemsize)))
-        im -= get_dtype_min(orig_dt)
-    return im, orig_dt
+    dt = im.dtype
+    if dt.kind == 'i':
+        im = im.view(dtype(dt.byteorder+'u'+str(dt.itemsize))) - get_dtype_min(dt)
+    return im, dt
 
 def __restore_signed(im, dt):
     """Restore an image data type after using __as_unsigned."""

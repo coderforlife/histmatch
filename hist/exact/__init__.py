@@ -13,10 +13,11 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
     in the strict ordering. To get a percentage, divide by the number of pixels in the image or
     the number of Trues in the mask if provided.
 
-    This method takes significantly more time than the approximate ("classical") version.
+    This histogram equalization method takes significantly more time than the approximate
+    ("classical") histogram equalization method.
 
     Internally this uses one of the following methods to create the strict ordering of pixels. The
-    method defaults to 'VA' which is a bit slower than 'LM' for 8-bit images but faster for other
+    method defaults to 'VA' which is a bit slower than 'LM' for 8-bit images but faster then other
     types. Also it is more accurate in general.
 
     ARBITRARY: [1,2,4]
@@ -112,6 +113,8 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
         more accurate to various papers but further from [8]. Can adjust the number of levels with
         nlevels (defaults to 2) and the kernel used (defaults to 'haar').
 
+        Method has been adapted to support 3D data. Does not support anisotropic data.
+
     VA: Variational Approach by Nikolova, Wen and Chan [10]
         This attempts to reconstruct the original real-valued version of the image and thus is a
         continuous-valued version of the image which can be strictly ordered. This has several
@@ -155,7 +158,7 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
 
     # Check arguments
     im, mask = check_image_mask_single_channel(im, mask)
-    n = im.size if mask is None else mask.sum()
+    n = im.size if mask is None else int(mask.sum())
     h_dst = __check_h_dst(h_dst, n)
 
     ##### Create strict-orderable versions of image #####
@@ -188,8 +191,12 @@ def __check_h_dst(h_dst, n):
     """
     # pylint: disable=invalid-name
     from numbers import Integral
-    from numpy import tile, floor, intp
-    h_dst = tile(n/h_dst, h_dst) if isinstance(h_dst, Integral) else h_dst.ravel()*(n/h_dst.sum()) #pylint: disable=no-member
+    from numpy import tile, floor, intp, asanyarray
+    if isinstance(h_dst, Integral):
+        h_dst = int(h_dst)
+        h_dst = tile(n/h_dst, h_dst)
+    else:
+        h_dst = h_dst.ravel()*(n/h_dst.sum())
     if len(h_dst) < 2: raise ValueError('h_dst')
     H_whole = floor(h_dst).astype(intp, copy=False)
     nw = H_whole.sum()
@@ -279,7 +286,7 @@ def __sort_pixels(values, shape, mask=None, return_fails=False, stable=False):
     not_equals = values_sorted[1:] != values_sorted[:-1]
     del values_sorted
     if not_equals.ndim == 2: not_equals = not_equals.any(1) # for lexsorted values
-    return idx, not_equals.size - not_equals.sum()
+    return idx, int(not_equals.size - not_equals.sum())
 
 def __calc_transform(h_dst, dt, n_mask, n_full):
     """Create the transform that is the size of the image but with sorted histogram values."""
@@ -287,7 +294,7 @@ def __calc_transform(h_dst, dt, n_mask, n_full):
     from ..util import get_dtype_min_max
     mn, mx = get_dtype_min_max(dt)
     transform = zeros(n_full, dtype=dt)
-    transform[-n_mask:] = repeat(linspace(mn, mx, len(h_dst), dtype=dt), h_dst)
+    transform[-n_mask:] = linspace(mn, mx, len(h_dst), dtype=dt).repeat(h_dst)
     return transform
 
 def __apply_transform(idx, transform, shape, mask=None):

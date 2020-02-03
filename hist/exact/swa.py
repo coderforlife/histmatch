@@ -74,7 +74,7 @@ def calc_info(im, detail_magnitude=True, nlevels=2, kernel='haar'):
         # Get any filter
         if filter_bank is None:
             from pywt import Wavelet
-            filter_bank = Wavelet(kernel).filter_bank[:2]
+            filter_bank = Wavelet(kernel).filter_bank[:2] # pylint: disable=unsubscriptable-object
         # Generate non-compacted results
         return non_compact(im, nlevels * (1 << im.ndim), __generate_swts,
                            (filter_bank, nlevels, detail_magnitude))

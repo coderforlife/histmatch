@@ -16,7 +16,7 @@ def calc_info(im, h_dst, reconstruction=False, return_fails=False):
     """
 
     # NOTE: when reconstruction=False (default) this is the same as arbitrary with stable sorting.
-    # The real benfit of their system is the reconstruction.
+    # The real benefit of their system is the reconstruction.
 
     # In the paper: im is z, h_dst is h^x, h_src is h^z, and index_z is analogous to Π_σ_z
     # In the hist.exact.histeq_exact method, transform is x and out is y.
@@ -41,7 +41,7 @@ def calc_info(im, h_dst, reconstruction=False, return_fails=False):
         # sorted data we need to do this here.
         values_sorted = im.ravel()[index_z]
         not_equals = values_sorted[1:] != values_sorted[:-1]
-        return index_z, not_equals.size - not_equals.sum()
+        return index_z, int(not_equals.size - not_equals.sum())
     return index_z
 
 def __bracket_iter(iterable):

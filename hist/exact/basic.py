@@ -22,7 +22,8 @@ def calc_info_rand(im):
     """
     from numpy.random import random
     if im.dtype.kind in 'iub':
-        im = im + random(im.shape) - 0.5
+        im = im + random(im.shape)
+        im -= 0.5
     return im
 
 def calc_info_gaussian_laplacian(im, sigmas=(0.5, 1.0), laplacian_mag=True):
