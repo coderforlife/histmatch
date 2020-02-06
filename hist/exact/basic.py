@@ -219,7 +219,7 @@ def calc_info_neighborhood_avg(im, size=3, invert=False):
          Proceedings of the Second Canadian Conference on Computer and Robot Vision.
     """
     # this uses scipy's 'reflect' mode (duplicated edge) ([2] says this should be constant-0)
-    from numpy import ones, subtract
+    from numpy import subtract
     from ..util import FLOAT64_NMANT
 
     # Deal with arguments
@@ -233,19 +233,32 @@ def calc_info_neighborhood_avg(im, size=3, invert=False):
     if dt.kind == 'f' or nbits > FLOAT64_NMANT:
         # No compaction possible
         out = empty((2,) + im.shape)
-        avg = correlate(im, ones(size), out[0, ...])
+        avg = __correlate_uniform(im, size, out[0, ...])
         if invert:
             subtract(avg.max() if dt.kind == 'f' else (n_neighbors * get_dtype_max(dt)), avg, avg)
         out[1, ...] = im # the original image is still part of this
     else:
         # Compact the results
-        out = correlate(im, ones(size), empty(im.shape, uint64))
+        out = __correlate_uniform(im, size, empty(im.shape, uint64))
         if invert:
             subtract(n_neighbors * get_dtype_max(dt), out, out)
         im = im.astype(out.dtype)
         im <<= shift
         out |= im # the original image is still part of this
     return out
+
+def __correlate_uniform(im, size, output):
+    """
+    Uses repeated scipy.ndimage.filters.correlate1d() calls to compute a uniform filter. Unlike
+    scipy.ndimage.filters.uniform_filter() this just uses ones(size) instead of ones(size)/size.
+    """
+    from numpy import ones
+    from scipy.ndimage.filters import correlate1d
+    weights = ones(size)
+    for axis in range(im.ndim):
+        correlate1d(im, weights, axis, output)
+        im = output
+    return output
 
 def calc_info_neighborhood_voting(im, size=3, invert=False):
     """
