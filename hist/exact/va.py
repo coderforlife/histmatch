@@ -2,9 +2,9 @@
 Implements variation approach strict ordering for use with exact histogram equalization.
 """
 
-from functools import lru_cache
-
 from numpy import asarray, empty, sqrt, subtract, nonzero
+
+from ..util import lru_cache_array
 
 SQRT2I = 1/sqrt(2)
 SQRT3I = 1/sqrt(3)
@@ -123,7 +123,7 @@ def calc_info(im, niters=5, beta=None, alpha=None, gamma=None):
         #if k >= 1 and is_unique(f.ravel()): break
     return u
 
-# @lru_cache(maxsize=None) # gamma is unhashable...
+# @lru_cache_array # gamma is unhashable...
 def __get_g_info(gamma):
     """
     Gets a list of entries from the G gradient matrix for the differences that need to be performed.
@@ -134,7 +134,7 @@ def __get_g_info(gamma):
     return [(gamma[coord], tuple(slices[x] for x in coord), tuple(slices[2-x] for x in coord))
             for coord in zip(*nonzero(gamma)) if not __is_reflection_coord(coord)]
 
-@lru_cache(maxsize=None)
+@lru_cache_array # doesn't return arrays, but doesn't hurt to use this one
 def __is_reflection_coord(coord):
     """Reflection coordinates have a 2 followed by 0 or more trailing 1s."""
     i = len(coord)-1
@@ -168,7 +168,7 @@ def __calculate_d_Phi(u, t, G_info, alpha_2, d_phi, denom): # pylint: disable=to
         t[slc_pos] += d_phi_x
         t[slc_neg] -= d_phi_x
 
-# @lru_cache(maxsize=None) # gamma is unhashable...
+# @lru_cache_array # gamma is unhashable...
 def __check_gamma(gamma):
     """
     Checks the gamma matrix to make sure that it is a 3x3 or 3x3x3 matrix with a 0 in the middle,
@@ -196,7 +196,7 @@ def __check_gamma(gamma):
         raise ValueError('gamma')
     return gamma
 
-# @lru_cache(maxsize=None) # gamma is unhashable...
+# @lru_cache_array # gamma is unhashable...
 def __get_gamma(gamma, ndim):
     """
     Gets and checks the value for gamma (either the one given or a default one of the given
@@ -211,13 +211,13 @@ def __get_gamma(gamma, ndim):
     if gamma.ndim != ndim: raise ValueError('gamma and im must have the same dimension')
     return __check_gamma(gamma)
 
-@lru_cache(maxsize=None)
+@lru_cache_array
 def __create_gamma_min(ndim):
     """Creates gamma that represents connected to a minimal set of neighbors."""
     from numpy import ogrid
     return (sum([x*x for x in ogrid[(slice(-1, 2),)*ndim]]) == 1).astype(float)
 
-@lru_cache(maxsize=None)
+@lru_cache_array
 def __create_gamma_full(ndim):
     """
     Creates gamma that represents fully connected to all neighbors (1s except the middle value).
@@ -227,7 +227,7 @@ def __create_gamma_full(ndim):
     gamma[(1,)*ndim] = 0
     return gamma
 
-@lru_cache(maxsize=None)
+@lru_cache_array
 def __create_gamma_dist(ndim):
     """Creates gamma that represents connected to all neighbors weighted by their distance."""
     from numpy import ogrid

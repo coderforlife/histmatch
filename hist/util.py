@@ -164,7 +164,30 @@ def prod(iterable):
     from operator import mul
     return reduce(mul, iterable, 1)
 
+def make_readonly(value):
+    """
+    Makes numpy arrays read-only. If the value is a tuple then it is searched for arrays
+    recursively. Lists are changed into tuples. Anything else is just return as-is.
+    """
+    from numpy import ndarray
+    if isinstance(value, (tuple, list)):
+        return tuple(make_readonly(elem) for elem in value)
+    if isinstance(value, ndarray):
+        value.flags.writeable = False
+    return value
+
+def lru_cache_array(func):
+    """
+    To lru_cache(maxsize=None) this adds that all returned numpy arrays are made readonly so that
+    they cannot be modified and thus change the cached value. This uses make_readonly().
+    """
 @lru_cache(maxsize=None)
+    def _wrapped(*args, **kwargs):
+        return make_readonly(func(*args, **kwargs))
+    _wrapped.__doc__ = func.__doc__
+    return _wrapped
+
+@lru_cache_array
 def dist2_matrix(order, ndim):
     """
     Generate a squared-distance matrix with ndim dimensions that has at least order unique distances
@@ -175,7 +198,7 @@ def dist2_matrix(order, ndim):
     slc = slice(-size, size+1) # the filter is 2*size+1 square
     return sum(x*x for x in ogrid[(slc,)*ndim])
 
-@lru_cache(maxsize=None)
+@lru_cache_array
 def generate_disks(order, ndim, hollow=False):
     """
     Generate disk/sphere masks up to a particular order for a number of dimensions. Does not include
