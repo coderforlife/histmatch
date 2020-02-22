@@ -1,5 +1,8 @@
 """
 Basic utilities for working with images.
+
+Any function here that takes arrays can take either numpy or cupy arrays except correlate().
+All functions are typically faster with GPU arrays except trim_zeros().
 """
 
 from functools import lru_cache
@@ -15,8 +18,17 @@ UINT_TYPES = sctypes['uint']
 FLOAT_TYPES = sctypes['float'] + [float]
 BASIC_TYPES = BIT_TYPES + INT_TYPES + UINT_TYPES + FLOAT_TYPES
 
+try:
+    import cupy
+    HAS_CUPY = True
+except ImportError:
+    HAS_CUPY = False
 
 ##### Image Verification #####
+def is_on_gpu(arr):
+    """Checks if an array is on the GPU (i.e. it uses cupy)."""
+    return HAS_CUPY and isinstance(arr, cupy.ndarray)
+
 def is_single_channel_image(im):
     """
     Returns True if `im` is a single-channel image, basically it is a ndarray of 2 or 3 dimensions
@@ -48,6 +60,9 @@ def check_image_mask_single_channel(im, mask):
         mask = check_image_single_channel(mask)
         if mask.dtype != bool or mask.shape != im.shape:
             raise ValueError('The mask must be a binary image with equal dimensions to the image')
+        if is_on_gpu(im) or is_on_gpu(mask):
+            from cupy import asanyarray # pylint: disable=import-error
+            im, mask = asanyarray(im), asanyarray(mask)
     return im, mask
 
 
@@ -181,7 +196,7 @@ def lru_cache_array(func):
     To lru_cache(maxsize=None) this adds that all returned numpy arrays are made readonly so that
     they cannot be modified and thus change the cached value. This uses make_readonly().
     """
-@lru_cache(maxsize=None)
+    @lru_cache(maxsize=None)
     def _wrapped(*args, **kwargs):
         return make_readonly(func(*args, **kwargs))
     _wrapped.__doc__ = func.__doc__
@@ -244,6 +259,7 @@ def correlate(im, weights, output=None, mode='reflect', cval=0.0):
     correletions/convolutions with (u)int64 operations may lose lowest significant digits since a
     float64 cannot represent every integer above 2^52.
     """
+    # GPU: won't work (no correlate1d function)
     from scipy.ndimage.filters import correlate, correlate1d # pylint: disable=redefined-outer-name
     from scipy.ndimage._ni_support import _get_output
     output = _get_output(output, im)
@@ -267,13 +283,15 @@ def __decompose_2d(kernel):
     """
     Decompose a 2D kernel into 2 1D kernels if possible. Returns None, None otherwise.
     """
-    # NOTE: this may introduce negative signs and other quirks
+    # NOTE: this may have some scaling quirks
     # pylint: disable=invalid-name
     from numpy.linalg import svd
     u, s, vh = svd(kernel)
     if sum(s > max(kernel.shape)*EPS*s.max()) != 1: return None, None
-    s = sqrt(s[0])
-    return u[:, 0]*s, vh[0, :]*s
+    u, s, vh = u[:, 0], sqrt(s[0]), vh[0, :]
+    # Make it so that the majority of values are not negative
+    if (u < 0).sum() + (vh < 0).sum() > sum(kernel.shape) // 2: s *= -1
+    return u*s, vh*s
 
 
 ##### Image as blocks #####
@@ -288,7 +306,10 @@ def block_view(im, block_size):
     last being exactly block_size.
     """
     if len(block_size) != im.ndim: raise ValueError('block_size')
-    from numpy.lib.stride_tricks import as_strided
+    if is_on_gpu(im):
+        from cupy.lib.stride_tricks import as_strided # pylint: disable=import-error
+    else:
+        from numpy.lib.stride_tricks import as_strided
     shape = tuple(x//sz for x, sz in zip(im.shape, block_size)) + block_size
     strides = tuple(stride*sz for stride, sz in zip(im.strides, block_size)) + im.strides
     return as_strided(im, shape=shape, strides=strides)
@@ -298,6 +319,10 @@ def reduce_blocks(blocks, func, out=None):
     Take a set of blocks like those given by block_view and apply func to each each axis of each
     block, eventually reducing to a single scalar for each block. That function must take a
     positional argument of axis (always given -1) and a keyword argument of out.
+
+    If the blocks array passed to this function is on the GPU (i.e. a cupy.ndarray) then the
+    function given should be a cupy function and the optional out array should be a cupy.ndarray as
+    well. This function is typically much, much, faster when running on a GPU array.
     """
     n = blocks.ndim // 2
     blocks = func(blocks, -1)

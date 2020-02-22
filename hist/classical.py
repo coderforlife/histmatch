@@ -1,15 +1,23 @@
 """
 Implements classical histogram equalization / matching.
+
+These function support images as either numpy or cupy arrays. The histeq_trans() function does
+accept the histogram arguments as cupy arrays but immediately converts to numpy arrays and always
+returns a numpy array.
 """
 
 from numpy import dtype
 
-from .util import check_image_mask_single_channel, get_dtype_max, get_dtype_min
+from .util import check_image_mask_single_channel, is_on_gpu, get_dtype_max, get_dtype_min
 
 def histeq(im, h_dst=64, h_src=None, mask=None):
     """
     Equalize the histogram of an image. The destination histogram is either given explicitly (as a
     sequence) or a uniform distribution of a fixed number of bins (defaults to 64 bins).
+
+    The performs an approximate histogram equalization. This is the most common technique used.
+    This is faster and less memory intensive than exact histogram equalization and can be given the
+    source histogram or split into two functions (thus it cannot be easily parallelized).
 
     Additionally, you can specify the source historgram instead of calculating it from the image
     itself (using 256 bins). This is useful if you want to use the source histogram to be from
@@ -22,9 +30,7 @@ def histeq(im, h_dst=64, h_src=None, mask=None):
     Supports integral and floating-point (from 0.0 to 1.0) image data types. To do something similar
     with bool/logical, use convert.bw. The h_dst and h_src must have at least 2 bins.
 
-    The performs an approximate histogram equalization. This is the most common technique used.
-    This is faster and less memory intensive than exact histogram equalization and can be given the
-    source histogram or split into two functions (thus it cannot be easily parallelized).
+    Supports GPU array images (as cupy arrays) for a considerable speedup.
     """
     im, mask = check_image_mask_single_channel(im, mask)
     if mask is None:
@@ -35,12 +41,16 @@ def histeq(im, h_dst=64, h_src=None, mask=None):
 
 def __histeq(im, h_dst, h_src):
     """
-    Calls histeq_trans then __histeq_apply with some minor optimizes. This is the internal function
-    used by histeq which only handles checking and masking.
+    Calls histeq_trans then __histeq_apply with some minor optimizations. This is the internal
+    function used by histeq which only handles checking and masking.
     """
-    from scipy.ndimage import histogram
     im, orig_dt = __as_unsigned(im)
-    if h_src is None: h_src = histogram(im, 0, get_dtype_max(im.dtype), 256)
+    if h_src is None:
+        if is_on_gpu(im):
+            from cupy import linspace, histogram # pylint: disable=import-error
+        else:
+            from numpy import linspace, histogram
+        h_src = histogram(im, linspace(0, get_dtype_max(im.dtype), 257))[0] # yes, 256+1
     transform = histeq_trans(h_src, h_dst, im.dtype)
     return __restore_signed(__histeq_apply(im, transform), orig_dt)
 
@@ -53,6 +63,9 @@ def histeq_trans(h_src, h_dst, dt):
     destination histograms and use it many times.
 
     This is really just one-half of histeq, see it for more details.
+
+    This function never uses the GPU. If either h_src or h_dst are GPU-arrays, they are converted to
+    numpy arrays before doing any computions. A numpy array is always returned.
     """
     from numbers import Integral
     from numpy import tile, vstack, asanyarray
@@ -63,6 +76,7 @@ def histeq_trans(h_src, h_dst, dt):
     if dt.kind == 'i': dt = dtype(dt.byteorder+'u'+str(dt.itemsize))
 
     # Prepare the source histogram
+    h_src = h_src.get() if is_on_gpu(h_src) else asanyarray(h_src)
     h_src = h_src.ravel()/h_src.sum()
 
     # Prepare the destination histogram
@@ -70,6 +84,7 @@ def histeq_trans(h_src, h_dst, dt):
         h_dst = int(h_dst)
         h_dst = tile(1/h_dst, h_dst)
     else:
+        h_dst = h_dst.get() if is_on_gpu(h_dst) else asanyarray(h_dst)
         h_dst = h_dst.ravel()/h_dst.sum()
 
     if h_dst.size < 2 or h_src.size < 2: raise ValueError('Invalid histograms')
@@ -90,6 +105,8 @@ def histeq_apply(im, transform, mask=None):
     histeq_trans. The image must have the same data-type as given to histeq_trans.
 
     This is really just one-half of histeq, see it for more details.
+
+    Supports GPU array images (as cupy arrays) for a considerable speedup.
     """
     im = check_image_mask_single_channel(im, mask)
     if mask is None:
@@ -103,12 +120,17 @@ def __histeq_apply(im, transform):
     Core of histeq_apply, that function only handles checking the image and mask and deals with the
     mask if necessary.
     """
-    from numpy import empty, intp
+    if is_on_gpu(im):
+        from cupy import asanyarray, empty, intp, rint # pylint: disable=import-error
+        transform = asanyarray(transform)
+    else:
+        from numpy import empty, intp, rint
+
     im, orig_dt = __as_unsigned(im)
     nlevels = get_dtype_max(im.dtype)
     if orig_dt.kind != 'f' and nlevels == len(transform)-1:
         # perfect fit, we don't need to scale the indices
-        idx = im
+        idx = im.astype(intp) if is_on_gpu(im) else im # TODO: GPU: github.com/cupy/cupy/issues/3017
     else:
         # scale the indices
         idx = im*(float(len(transform)-1)/nlevels)

@@ -10,6 +10,7 @@ def main():
     import gzip
     import imageio
     import hist._cmd_line_util as cui
+    from .util import is_on_gpu
 
     # Extra imports to make sure everything is available now
     import numpy, scipy.ndimage # pylint: disable=unused-import, multiple-imports
@@ -32,6 +33,8 @@ def main():
 
     # Save (if not testing)
     if args.output != '':
+        if is_on_gpu(out):
+            out = out.get()
         if args.output.endswith('.npy'):
             numpy.save(args.output, out)
         if args.output.endswith('.npy.gz'):

@@ -25,8 +25,9 @@ def add_input_image(parser):
     """
     parser.add_argument('input', help='input image file (including .npy, .npy.gz, and directories/wildcard names for 3D images)')
     parser.add_argument('--float', action='store_true', help='convert image to float')
+    parser.add_argument('--gpu', action='store_true', help='utilize the GPU when able')
 
-def open_input_image(args_or_filename, conv_to_float=False):
+def open_input_image(args_or_filename, conv_to_float=False, use_gpu=False):
     """
     Opens the args.input image, converting to float is args.float is True. If the image filename
     ends with .npy or .npy.gz then it is directly loaded. Otherwise imageio is used to load the
@@ -42,19 +43,24 @@ def open_input_image(args_or_filename, conv_to_float=False):
     else:
         filename = args_or_filename.input
         conv_to_float = conv_to_float or args_or_filename.float
+        use_gpu = use_gpu or args_or_filename.gpu
     if os.path.isdir(filename):
         filenames = [os.path.join(filename, image) for image in os.listdir(filename)]
     elif not os.path.exists(filename) and ('?' in filename or '*' in filename or
                                            ('[' in filename and ']' in filename)):
         filenames = glob(filename)
     else:
-        return __load_image(filename, conv_to_float)
+        return __load_image(filename, conv_to_float, use_gpu)
     filenames.sort()
-    ims = [__load_image(filename, conv_to_float) for filename in filenames]
+    ims = [__load_image(filename, conv_to_float, use_gpu) for filename in filenames]
     return stack(ims)
 
-def __load_image(filename, conv_to_float=False):
-    """Loads a single image from the filename taking care of color data and conversion to float."""
+def __load_image(filename, conv_to_float=False, use_gpu=False):
+    """
+    Loads a single image from the filename taking care of color data and conversion to float and/or
+    loading onto the GPU.
+    """
+    import sys
     import gzip
     import imageio
     from numpy import load
@@ -68,6 +74,13 @@ def __load_image(filename, conv_to_float=False):
         im = imageio.imread(filename)
         if im.ndim != 2: im = im.mean(2)
     if conv_to_float: im = as_float(im)
+    if use_gpu:
+        try:
+            from cupy import asanyarray
+        except ImportError:
+            print("To utilize the GPU you must install the cupy package", file=sys.stderr)
+            sys.exit(1)
+        im = asanyarray(im)
     return im
 
 __CONVERSIONS = {
