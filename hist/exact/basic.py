@@ -10,7 +10,7 @@ Implements basic strict ordering techniques for use with exact histogram equaliz
 """
 
 from numpy import empty, zeros, uint64
-from ..util import as_unsigned, log2i, get_uint_dtype_fit, get_dtype_max, generate_disks, correlate
+from ..util import is_on_gpu, as_unsigned, log2i, get_uint_dtype_fit, get_dtype_max, generate_disks
 
 def calc_info_rand(im):
     """
@@ -20,11 +20,16 @@ def calc_info_rand(im):
     REFERENCES
       1. Rosenfeld A and Kak A, 1982, "Digital Picture Processing"
     """
-    from numpy.random import random
+    if is_on_gpu(im):
+        from cupy.random import random # pylint: disable=import-error
+    else:
+        from numpy.random import random
     if im.dtype.kind in 'iub':
         im = im + random(im.shape)
         im -= 0.5
     return im
+
+calc_info_rand.accepts_cupy = True
 
 def calc_info_gaussian_laplacian(im, sigmas=(0.5, 1.0), laplacian_mag=True):
     """
@@ -122,6 +127,7 @@ def calc_info_mean_laplacian(im, order=3, laplacian_mag=True):
 def __gen_mean_laplacian_filtered(im, filters, laplacian_mag=True):
     """Generator for Mean-Laplacian strict ordering."""
     from numpy import int64, abs # pylint: disable=redefined-builtin
+    from ..util import correlate
     data = empty(im.shape, float if im.dtype.kind == 'f' else int64)
     for i, fltr in enumerate(filters):
         correlate(im, fltr, output=data)
@@ -252,6 +258,7 @@ def __correlate_uniform(im, size, output):
     Uses repeated scipy.ndimage.filters.correlate1d() calls to compute a uniform filter. Unlike
     scipy.ndimage.filters.uniform_filter() this just uses ones(size) instead of ones(size)/size.
     """
+    # GPU: won't work (no correlate1d function)
     from numpy import ones
     from scipy.ndimage.filters import correlate1d
     weights = ones(size)

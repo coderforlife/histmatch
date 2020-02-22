@@ -1,6 +1,10 @@
 """
 Implements exact histogram equalization / matching. The underlying methods for establishing a strict
 ordering are in other files in this module.
+
+These function support images as either numpy or cupy arrays. If the chosen method doesn't support
+cupy arrays then the array is convert to a numpy array before calling calc_info() and the resulting
+values returned are converted back into a cupy array.
 """
 
 def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stable=False, **kwargs): #pylint: disable=too-many-arguments
@@ -16,6 +20,10 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
     This histogram equalization method takes significantly more time than the approximate
     ("classical") histogram equalization method.
 
+    This function supports images that are stored on the GPU (as cupy arrays) for a considerable
+    speedup. However, not all methods listed below support using the GPU for their computations and
+    thus you may not get the full speedup.
+
     Internally this uses one of the following methods to create the strict ordering of pixels. The
     method defaults to 'VA' which is a bit slower than 'LM' for 8-bit images but faster then other
     types. Also it is more accurate in general.
@@ -24,13 +32,13 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
         Simplest approach. All ties are broken in an arbitrary but consistent manner. This method
         is dubbed "Sort-Matching" in [1] and "Quick Histogram Specification" (QHS) in [4]. Useful
         for establishing a baseline on time and pixel ordering failure rate for using any strict
-        ordering method. Inherently supports 3D and/or anisotropic data.
+        ordering method. Inherently supports 3D and/or anisotropic data. Supports using GPU.
 
     RAND: [2,3]
         Very simple approach. All ties in the ordering are broken randomly. Like arbitrary this
         is extremely fast and introduces noise into the data. Unlike arbitrary, this will not
         produce consistent results. Additionally, unlike arbitrary, this will have an extremely
-        low pixel failure rate. Inherently supports 3D and/or anisotropic data.
+        low pixel failure rate. Inherently supports 3D and/or anisotropic data. Supports using GPU.
 
     NA: Neighborhood Average [3,4]
         Uses the average of the 3-by-3 neighborhood to break ties. The size param can be used to
@@ -84,7 +92,7 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
         which take about twice the memory and 8x the time from classical histeq. Other image types
         which can take 7x the memory and 40x the time.
 
-        Method has been adapted to support 3D data. Does not support anisotropic data.
+        Method adapted to support 3D data. Does not support anisotropic data. Supports using GPU.
 
     WA: Wavelet Approach by Wan and Shi [8]
         Uses the traditional (decimating) wavelet transform and complex sorting rules to distinguish
@@ -127,7 +135,7 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
     OPTIMUM: Optimum Approach by Balado [11]
         It turns out that it is equivalent to arbitrary with stable sorting except during
         reconstruction (when passing reconstruction=True) in which case minor changes are made to
-        the order to be optimal. Inherently supports 3D and/or anisotropic data.
+        the order to be optimal. Inherently supports 3D and/or anisotropic data. Supports using GPU.
 
     REFERENCES:
       1. Rolland JP, Vo V, Bloss B, and Abbey CK, 2000, "Fast algorithm for histogram
@@ -154,7 +162,7 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
 
     Additional references for each are available with their respective calc_info functions.
     """
-    from ..util import check_image_mask_single_channel
+    from ..util import check_image_mask_single_channel, is_on_gpu
 
     # Check arguments
     im, mask = check_image_mask_single_channel(im, mask)
@@ -175,7 +183,7 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
     del values
 
     ##### Create the transform that is the size of the image but with sorted histogram values #####
-    transform = __calc_transform(h_dst, im.dtype, n, idx.size)
+    transform = __calc_transform(h_dst, im.dtype, n, idx.size, is_on_gpu(idx))
     del h_dst
 
     ##### Create the equalized image #####
@@ -192,10 +200,12 @@ def __check_h_dst(h_dst, n):
     # pylint: disable=invalid-name
     from numbers import Integral
     from numpy import tile, floor, intp, asanyarray
+    from ..util import is_on_gpu
     if isinstance(h_dst, Integral):
         h_dst = int(h_dst)
         h_dst = tile(n/h_dst, h_dst)
     else:
+        h_dst = h_dst.get() if is_on_gpu(h_dst) else asanyarray(h_dst)
         h_dst = h_dst.ravel()*(n/h_dst.sum())
     if len(h_dst) < 2: raise ValueError('h_dst')
     H_whole = floor(h_dst).astype(intp, copy=False)
@@ -214,10 +224,16 @@ def __calc_info(im, method, **kwargs):
     """
     Calculate the strict-orderable version of an image. Returns a floating-point 'images' or images
     with an extra dimension giving a 'tuple' of data for each pixel.
+
+    If the method does not support GPU arrays but im is a GPU array, it will be copied off of the
+    GPU to call the calc_info() function and then the resulting values will be copied back to the
+    GPU at the end. Thus if given a GPU array this always returns a GPU array.
     """
     # pylint: disable=too-many-branches
+    from ..util import is_on_gpu
     if method in ('arbitrary', None):
         calc_info = lambda x: x
+        calc_info.accepts_cupy = True
     elif method in ('rand', 'random'):
         from .basic import calc_info_rand as calc_info
     elif method == 'na':
@@ -242,7 +258,15 @@ def __calc_info(im, method, **kwargs):
         from .optimum import calc_info
     else:
         raise ValueError('method')
-    return calc_info(im, **kwargs)
+    need_gpu_conversion = not getattr(calc_info, 'support_cupy', False) and is_on_gpu(im)
+    if need_gpu_conversion:
+        im = im.get()
+    values = calc_info(im, **kwargs)
+    if need_gpu_conversion:
+        from cupy import asanyarray # pylint: disable=import-error
+        values = asanyarray(values) if not isinstance(values, tuple) else \
+            (asanyarray(values[0]), values[1])
+    return values
 
 def __sort_pixels(values, shape, mask=None, return_fails=False, stable=False):
     """
@@ -254,6 +278,8 @@ def __sort_pixels(values, shape, mask=None, return_fails=False, stable=False):
 
     Returns the indices of the sorted values and the number of fails (or None if not requested).
     """
+    from ..util import is_on_gpu
+
     ##### Check if the values already contain the failures #####
     fails = None
     if return_fails and isinstance(values, tuple):
@@ -269,13 +295,18 @@ def __sort_pixels(values, shape, mask=None, return_fails=False, stable=False):
     elif values.shape == shape:
         # Single value per pixel
         values = values.ravel() if mask is None else values[mask]
-        idx = values.argsort(kind='stable' if stable else 'quicksort')
+        idx = values.argsort() if is_on_gpu(values) else \
+            values.argsort(kind='stable' if stable else 'quicksort')
     else:
         # Tuple of values per pixel - need lexsort
-        from numpy import lexsort
         assert values.shape[1:] == shape
         values = values.reshape(values.shape[0], -1) if mask is None else values[:, mask]
-        idx = lexsort(values, 0)
+        if is_on_gpu(values):
+            from cupy import lexsort # pylint: disable=import-error
+            idx = lexsort(values)
+        else:
+            from numpy import lexsort
+            idx = lexsort(values, 0)
 
     # Done if not calculating failures
     if not return_fails or fails is not None: return idx, fails
@@ -288,9 +319,15 @@ def __sort_pixels(values, shape, mask=None, return_fails=False, stable=False):
     if not_equals.ndim == 2: not_equals = not_equals.any(1) # for lexsorted values
     return idx, int(not_equals.size - not_equals.sum())
 
-def __calc_transform(h_dst, dt, n_mask, n_full):
+def __calc_transform(h_dst, dt, n_mask, n_full, on_gpu=False):
     """Create the transform that is the size of the image but with sorted histogram values."""
-    from numpy import zeros, repeat, linspace
+    # TODO: this function takes the majority of the time when using the GPU (like 70%-80% of the
+    # entire histeq_exact for LM...)
+    if on_gpu:
+        from cupy import zeros, linspace # pylint: disable=import-error
+        h_dst = list(h_dst) # cupy repeat() function has issues with array arguments
+    else:
+        from numpy import zeros, linspace
     from ..util import get_dtype_min_max
     mn, mx = get_dtype_min_max(dt)
     transform = zeros(n_full, dtype=dt)
@@ -299,7 +336,11 @@ def __calc_transform(h_dst, dt, n_mask, n_full):
 
 def __apply_transform(idx, transform, shape, mask=None):
     """Apply a transform with the strict ordering in idx."""
-    from numpy import zeros, empty, place
+    from ..util import is_on_gpu
+    if is_on_gpu(idx):
+        from cupy import zeros, empty, place # pylint: disable=import-error
+    else:
+        from numpy import zeros, empty, place
     if mask is not None:
         mask_idx = empty(idx.size, transform.dtype)
         mask_idx.put(idx, transform)

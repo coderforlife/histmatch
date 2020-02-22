@@ -2,9 +2,8 @@
 Implements local means strict ordering for use with exact histogram equalization.
 """
 
-from functools import lru_cache
-from numpy import uint64, ceil, log2, empty, unique
-from ..util import FLOAT64_NMANT, dist2_matrix, trim_zeros, as_unsigned, correlate
+from numpy import uint64, ceil, log2, unique
+from ..util import FLOAT64_NMANT, dist2_matrix, trim_zeros, is_on_gpu, as_unsigned, lru_cache_array
 
 def calc_info(im, order=6):
     """
@@ -34,6 +33,13 @@ def calc_info(im, order=6):
          Transcations on Image Processing 15(5):1143-1152
     """
     # this uses scipy's 'reflect' mode (duplicated edge)
+    if is_on_gpu(im):
+        # pylint: disable=import-error
+        from cupy import empty, asanyarray
+        from cupyx.scipy.ndimage import correlate
+    else:
+        from numpy import empty, asanyarray
+        from scipy.ndimage import correlate
 
     # Deal with arguments
     if order < 2: raise ValueError('order')
@@ -45,7 +51,7 @@ def calc_info(im, order=6):
 
     if len(filters) == 1 and (includes_order_one or FLOAT64_NMANT + dt.itemsize*8 <= 64):
         # Single convolution
-        out = correlate(im, filters[0], empty(im.shape, uint64))
+        out = correlate(im, asanyarray(filters[0]), empty(im.shape, uint64))
         if not includes_order_one:
             out |= im.astype(uint64) << FLOAT64_NMANT
         return out
@@ -54,12 +60,14 @@ def calc_info(im, order=6):
     im = im.astype(float, copy=False)
     out = empty((len(filters)+(not includes_order_one),) + im.shape)
     for i, fltr in enumerate(filters):
-        correlate(im, fltr, out[i, ...])
+        correlate(im, asanyarray(fltr), out[i, ...])
     if not includes_order_one:
         out[-1, ...] = im
     return out
 
-@lru_cache(maxsize=None)
+calc_info.accepts_cupy = True
+
+@lru_cache_array
 def __get_filters(dt, order, ndim):
     """
     Get the local-means filters for an image data type and order. The returned sequence is has the
