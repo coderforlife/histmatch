@@ -16,33 +16,56 @@ def calc_info(im, h_dst, reconstruction=False, return_fails=False):
     """
 
     # NOTE: when reconstruction=False (default) this is the same as arbitrary with stable sorting.
-    # The real benefit of their system is the reconstruction.
+    # The real benfit of their system is the reconstruction.
 
     # In the paper: im is z, h_dst is h^x, h_src is h^z, and index_z is analogous to Π_σ_z
     # In the hist.exact.histeq_exact method, transform is x and out is y.
 
+    from .util import is_on_gpu
+    on_gpu = is_on_gpu(im)
+    
     # Find closest equalization using minimum distance decoder
-    index_z = im.ravel().argsort(kind='stable')
+    im = im.ravel()
+    index_z = im.argsort() if on_gpu else im.argsort(kind='stable')
 
     # When reconstructing we need to reverse various indices so that it goes optimally
     if reconstruction:
-        # Within each set of equal z we need to reverse the values
-        from numpy import bincount
-        h_src = bincount(im.ravel())
-        for i, j in __bracket_iter(h_src):
-            index_z[i:j] = index_z[i:j][::-1] # reverse
+        if on_gpu:
+            # Within each set of equal z we need to reverse the values
+            from cupy import bincount # pylint: disable=import-error
+            from cupy.cuda.stream import Stream # pylint: disable=import-error
+            h_src = bincount(im).get()
+            for i, j in __bracket_iter(h_src):
+                index_z[i:j] = index_z[i:j][::-1] # reverse
 
-        # Fix ties of z, formally the way to recover stable sorting
-        for i, j in __bracket_iter(h_dst):
-            index_z[i:j].sort()
-
+            # Fix ties of z, formally the way to recover stable sorting
+            streams = [Stream() for _ in range(len(h_dst))]
+            for stream, (i, j) in zip(streams, __bracket_iter(h_dst)):
+                if i+1 < j:
+                    with stream:
+                        index_z[i:j].sort()
+            Stream.null.synchronize()
+            del streams
+        else:
+            # Within each set of equal z we need to reverse the values
+            from numpy import bincount
+            h_src = bincount(im)
+            for i, j in __bracket_iter(h_src):
+                index_z[i:j] = index_z[i:j][::-1] # reverse
+        
+            # Fix ties of z, formally the way to recover stable sorting
+            for i, j in __bracket_iter(h_dst):
+                if i+1 < j:
+                    index_z[i:j].sort()
+            
     if return_fails:
         # This is the same as done in hist.exact.__sort_pixels but since we are returning the
         # sorted data we need to do this here.
-        values_sorted = im.ravel()[index_z]
+        values_sorted = im[index_z]
         not_equals = values_sorted[1:] != values_sorted[:-1]
         return index_z, int(not_equals.size - not_equals.sum())
     return index_z
+
 
 def __bracket_iter(iterable):
     "s -> (0,s0), (s0,s0+s1), (s0+s1, s0+s1+s2), ..."

@@ -195,7 +195,7 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
 def __check_h_dst(h_dst, n):
     """
     Check the h_dst argument and return it converted to a fleshed-out histogram for the given number
-    of pixels. Accepts integers or arrays.
+    of pixels. Accepts integers or arrays. Always returns a numpy array and never a GPU array.
     """
     # pylint: disable=invalid-name
     from numbers import Integral
