@@ -16,7 +16,10 @@ def imhist(im, nbins=256, mask=None):
 
 def __imhist(im, nbins):
     """Core of imhist with no checks or handling of mask."""
-    from scipy.ndimage import histogram
-    from .util import get_im_min_max
+    from .util import get_im_min_max, is_on_gpu
+    if is_on_gpu(im):
+        from cupy import linspace, histogram # pylint: disable=import-error
+    else:
+        from numpy import linspace, histogram
     mn, mx = get_im_min_max(im)
-    return histogram(im, mn, mx, nbins)
+    return histogram(im, linspace(mn, mx, nbins+1))[0]

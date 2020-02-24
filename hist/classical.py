@@ -46,11 +46,8 @@ def __histeq(im, h_dst, h_src):
     """
     im, orig_dt = __as_unsigned(im)
     if h_src is None:
-        if is_on_gpu(im):
-            from cupy import linspace, histogram # pylint: disable=import-error
-        else:
-            from numpy import linspace, histogram
-        h_src = histogram(im, linspace(0, get_dtype_max(im.dtype), 257))[0] # yes, 256+1
+        from . import __imhist
+        h_src = __imhist(im, 256)
     transform = histeq_trans(h_src, h_dst, im.dtype)
     return __restore_signed(__histeq_apply(im, transform), orig_dt)
 
