@@ -21,9 +21,9 @@ def calc_info(im, h_dst, reconstruction=False, return_fails=False):
     # In the paper: im is z, h_dst is h^x, h_src is h^z, and index_z is analogous to Π_σ_z
     # In the hist.exact.histeq_exact method, transform is x and out is y.
 
-    from .util import is_on_gpu
+    from ..util import is_on_gpu
     on_gpu = is_on_gpu(im)
-    
+
     # Find closest equalization using minimum distance decoder
     im = im.ravel()
     index_z = im.argsort() if on_gpu else im.argsort(kind='stable')
@@ -52,12 +52,12 @@ def calc_info(im, h_dst, reconstruction=False, return_fails=False):
             h_src = bincount(im)
             for i, j in __bracket_iter(h_src):
                 index_z[i:j] = index_z[i:j][::-1] # reverse
-        
+
             # Fix ties of z, formally the way to recover stable sorting
             for i, j in __bracket_iter(h_dst):
                 if i+1 < j:
                     index_z[i:j].sort()
-            
+
     if return_fails:
         # This is the same as done in hist.exact.__sort_pixels but since we are returning the
         # sorted data we need to do this here.
