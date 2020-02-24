@@ -67,6 +67,8 @@ def calc_info(im, h_dst, reconstruction=False, return_fails=False):
         return index_z, int(not_equals.size - not_equals.sum())
     return index_z
 
+calc_info.accepts_cupy = True
+
 
 def __bracket_iter(iterable):
     "s -> (0,s0), (s0,s0+s1), (s0+s1, s0+s1+s2), ..."
