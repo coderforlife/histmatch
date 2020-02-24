@@ -39,6 +39,7 @@ def calc_info(im, h_dst, reconstruction=False, return_fails=False):
                 index_z[i:j] = index_z[i:j][::-1] # reverse
 
             # Fix ties of z, formally the way to recover stable sorting
+            if is_on_gpu(h_dst): h_dst = h_dst.get()
             streams = [Stream() for _ in range(len(h_dst))]
             for stream, (i, j) in zip(streams, __bracket_iter(h_dst)):
                 if i+1 < j:
