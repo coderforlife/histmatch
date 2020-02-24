@@ -321,17 +321,29 @@ def __sort_pixels(values, shape, mask=None, return_fails=False, stable=False):
 
 def __calc_transform(h_dst, dt, n_mask, n_full, on_gpu=False):
     """Create the transform that is the size of the image but with sorted histogram values."""
-    # TODO: this function takes the majority of the time when using the GPU (like 70%-80% of the
-    # entire histeq_exact for LM...)
+    from hist.util import get_dtype_min_max
     if on_gpu:
-        from cupy import zeros, linspace # pylint: disable=import-error
-        h_dst = list(h_dst) # cupy repeat() function has issues with array arguments
+        from cupy import zeros, linspace, ElementwiseKernel, asarray # pylint: disable=import-error
     else:
         from numpy import zeros, linspace
-    from ..util import get_dtype_min_max
+
     mn, mx = get_dtype_min_max(dt)
-    transform = zeros(n_full, dtype=dt)
-    transform[-n_mask:] = linspace(mn, mx, len(h_dst), dtype=dt).repeat(h_dst)
+    values = linspace(mn, mx, len(h_dst), dtype=dt)
+    transform = zeros(n_full, dtype=dt) # start with all zoers
+
+    if on_gpu:
+        # Even though .repeat() is supported in cupy, it is slow - this is WAY faster
+        trans_kernel = ElementwiseKernel(
+            'raw int64 h_dst_cs, raw T values', 'T transform',
+            '''
+            int j = 0;
+            // TODO: would be even faster using a binary search for j
+            while (h_dst_cs[j] <= i) { j++; }
+            transform = values[j];''',
+            'calc_transform')
+        trans_kernel(asarray(h_dst).cumsum(), values, transform[-n_mask:])
+    else:
+        transform[-n_mask:] = values.repeat(h_dst)
     return transform
 
 def __apply_transform(idx, transform, shape, mask=None):
