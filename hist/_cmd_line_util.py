@@ -23,7 +23,8 @@ def add_input_image(parser):
     function to read the image. This supports filenames with glob wildcards or directories to read a
     series of images in as a 3D image.
     """
-    parser.add_argument('input', help='input image file (including .npy, .npy.gz, and directories/wildcard names for 3D images)')
+    parser.add_argument('input', help='input image file (including .npy, .npy.gz, and '
+                        'directories/wildcard names for 3D images)')
     parser.add_argument('--float', action='store_true', help='convert image to float')
     parser.add_argument('--gpu', action='store_true', help='utilize the GPU when able')
 
@@ -33,7 +34,7 @@ def open_input_image(args_or_filename, conv_to_float=False, use_gpu=False):
     ends with .npy or .npy.gz then it is directly loaded. Otherwise imageio is used to load the
     image and if it is color the mean of the color channels is used. If the filename does not
     exist and includes wildcard characters (? * []) then it is assumed to be a glob pattern to load
-    a 3D image from. You can use add_input_image to setup the parser arguments for this function. 
+    a 3D image from. You can use add_input_image to setup the parser arguments for this function.
     """
     import os
     from glob import glob
@@ -66,8 +67,8 @@ def __load_image(filename, conv_to_float=False, use_gpu=False):
     from numpy import load
     from hist.util import as_float
     if filename.endswith('.npy.gz'):
-        with gzip.GzipFile(filename, 'rb') as f:
-            im = load(f)
+        with gzip.GzipFile(filename, 'rb') as file:
+            im = load(file)
     elif filename.endswith('.npy'):
         im = load(filename)
     else:

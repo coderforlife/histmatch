@@ -7,10 +7,7 @@ from . import histeq, histeq_exact
 def main():
     """Main function that runs histogram equalization on an image."""
     import argparse
-    import gzip
-    import imageio
     import hist._cmd_line_util as cui
-    from .util import is_on_gpu
 
     # Extra imports to make sure everything is available now
     import numpy, scipy.ndimage # pylint: disable=unused-import, multiple-imports
@@ -33,23 +30,31 @@ def main():
 
     # Save (if not testing)
     if args.output != '':
-        if is_on_gpu(out):
-            out = out.get()
-        if args.output.endswith('.npy'):
-            numpy.save(args.output, out)
-        if args.output.endswith('.npy.gz'):
-            with gzip.GzipFile(args.output, 'wb') as f:
-                numpy.save(args.output, f)
-        elif out.ndim == 3 and '#' in args.output:
-            start = args.output.index('#')
-            end = start + 1
-            while end < len(args.output) and args.output[end] == '#':
-                end += 1
-            num_str, fmt_str = args.output[start:end], '%0'+str(end-start)+'d'
-            for i in range(out.shape[0]):
-                imageio.imwrite(args.output.replace(num_str, fmt_str % i), out[i, :, :])
-        else:
-            imageio.imwrite(args.output, out)
+        __save(args, out)
+
+def __save(args, out):
+    import gzip
+    import numpy
+    import imageio
+    from .util import is_on_gpu
+    if is_on_gpu(out):
+        out = out.get()
+    if args.output.endswith('.npy'):
+        numpy.save(args.output, out)
+    if args.output.endswith('.npy.gz'):
+        with gzip.GzipFile(args.output, 'wb') as file:
+            numpy.save(args.output, file)
+    elif out.ndim == 3 and '#' in args.output:
+        start = args.output.index('#')
+        end = start + 1
+        while end < len(args.output) and args.output[end] == '#':
+            end += 1
+        num_str, fmt_str = args.output[start:end], '%0'+str(end-start)+'d'
+        for i in range(out.shape[0]):
+            imageio.imwrite(args.output.replace(num_str, fmt_str % i), out[i, :, :])
+    else:
+        imageio.imwrite(args.output, out)
+
 
 if __name__ == "__main__":
     main()
