@@ -626,7 +626,9 @@ def contrast_restoration(im, method, remove_bits=1, blur_sigma=0, **kwargs):
      2. Jung S-W, 2014, "Exact Histogram Specification Considering the Just Noticeable Difference",
         IEIE Transactions on Smart Processing and Computing, 3(2):52-58.
     """
-    from . import imhist, histeq, histeq_exact
+    from .util import imhist
+    from .classical import histeq
+    from .exact import histeq_exact
     hist = imhist(im)
     degraded = degrade_image(im, remove_bits, blur_sigma)
     return (histeq(degraded, hist, **kwargs), None) if method == 'classic' else \

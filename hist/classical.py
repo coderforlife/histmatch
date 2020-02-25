@@ -6,9 +6,7 @@ accept the histogram arguments as cupy arrays but immediately converts to numpy 
 returns a numpy array.
 """
 
-from numpy import dtype
-
-from .util import check_image_mask_single_channel, is_on_gpu, get_dtype_max, get_dtype_min
+from .util import check_image_mask_single_channel, get_array_module, get_dtype_max, get_dtype_min
 
 def histeq(im, h_dst=64, h_src=None, mask=None):
     """
@@ -46,8 +44,8 @@ def __histeq(im, h_dst, h_src):
     """
     im, orig_dt = __as_unsigned(im)
     if h_src is None:
-        from . import __imhist
-        h_src = __imhist(im, 256)
+        from .util import __imhist
+        h_src = __imhist(im)
     transform = histeq_trans(h_src, h_dst, im.dtype)
     return __restore_signed(__histeq_apply(im, transform), orig_dt)
 
@@ -65,15 +63,15 @@ def histeq_trans(h_src, h_dst, dt):
     numpy arrays before doing any computions. A numpy array is always returned.
     """
     from numbers import Integral
-    from numpy import tile, vstack, asanyarray
-    from .util import EPS_SQRT
+    from numpy import tile, vstack, dtype
+    from .util import EPS_SQRT, as_numpy
 
     dt = dtype(dt)
     if dt.base != dt or dt.kind not in 'iuf': raise ValueError("Unsupported data-type")
     if dt.kind == 'i': dt = dtype(dt.byteorder+'u'+str(dt.itemsize))
 
     # Prepare the source histogram
-    h_src = h_src.get() if is_on_gpu(h_src) else asanyarray(h_src)
+    h_src = as_numpy(h_src)
     h_src = h_src.ravel()/h_src.sum()
 
     # Prepare the destination histogram
@@ -81,7 +79,7 @@ def histeq_trans(h_src, h_dst, dt):
         h_dst = int(h_dst)
         h_dst = tile(1/h_dst, h_dst)
     else:
-        h_dst = h_dst.get() if is_on_gpu(h_dst) else asanyarray(h_dst)
+        h_dst = as_numpy(h_dst)
         h_dst = h_dst.ravel()/h_dst.sum()
 
     if h_dst.size < 2 or h_src.size < 2: raise ValueError('Invalid histograms')
@@ -117,21 +115,19 @@ def __histeq_apply(im, transform):
     Core of histeq_apply, that function only handles checking the image and mask and deals with the
     mask if necessary.
     """
-    if is_on_gpu(im):
-        from cupy import asanyarray, empty, intp, rint # pylint: disable=import-error
-        transform = asanyarray(transform)
-    else:
-        from numpy import empty, intp, rint
-
+    from .util import is_on_gpu
+    xp = get_array_module(im)
     im, orig_dt = __as_unsigned(im)
     nlevels = get_dtype_max(im.dtype)
+    transform = xp.asanyarray(transform)
     if orig_dt.kind != 'f' and nlevels == len(transform)-1:
         # perfect fit, we don't need to scale the indices
-        idx = im.astype(intp) if is_on_gpu(im) else im # TODO: GPU: github.com/cupy/cupy/issues/3017
+        # TODO: GPU: github.com/cupy/cupy/issues/3017
+        idx = im.astype(xp.intp) if is_on_gpu(im) else im
     else:
         # scale the indices
         idx = im*(float(len(transform)-1)/nlevels)
-        idx = rint(idx, out=empty(im.shape, dtype=intp), casting='unsafe')
+        idx = xp.rint(idx, out=xp.empty(im.shape, dtype=xp.intp), casting='unsafe')
     return __restore_signed(transform.take(idx), orig_dt)
 
 def __as_unsigned(im):
@@ -139,6 +135,7 @@ def __as_unsigned(im):
     If the image is signed integers then it is converted to unsigned. The image and the original
     dtype are returned.
     """
+    from numpy import dtype
     dt = im.dtype
     if dt.kind == 'i':
         im = im.view(dtype(dt.byteorder+'u'+str(dt.itemsize))) - get_dtype_min(dt)

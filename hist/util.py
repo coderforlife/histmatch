@@ -6,20 +6,22 @@ All functions are typically faster with GPU arrays except trim_zeros().
 """
 
 from functools import lru_cache
-from numpy import dtype, sctypes, bool_, spacing, sqrt, finfo
+import numpy
+import scipy.ndimage
 
-EPS = spacing(1)
-EPS_SQRT = sqrt(EPS)
-FLOAT64_NMANT = finfo(float).nmant
+EPS = numpy.spacing(1)
+EPS_SQRT = numpy.sqrt(EPS)
+FLOAT64_NMANT = numpy.finfo(float).nmant
 
-BIT_TYPES = [bool_, bool] # bool8?
-INT_TYPES = sctypes['int'] + [int]
-UINT_TYPES = sctypes['uint']
-FLOAT_TYPES = sctypes['float'] + [float]
+BIT_TYPES = [numpy.bool_, bool] # bool8?
+INT_TYPES = numpy.sctypes['int'] + [int]
+UINT_TYPES = numpy.sctypes['uint']
+FLOAT_TYPES = numpy.sctypes['float'] + [float]
 BASIC_TYPES = BIT_TYPES + INT_TYPES + UINT_TYPES + FLOAT_TYPES
 
 try:
     import cupy
+    import cupyx.scipy.ndimage
     HAS_CUPY = True
 except ImportError:
     HAS_CUPY = False
@@ -28,6 +30,23 @@ except ImportError:
 def is_on_gpu(arr):
     """Checks if an array is on the GPU (i.e. it uses cupy)."""
     return HAS_CUPY and isinstance(arr, cupy.ndarray)
+
+def get_array_module(*args):
+    """
+    Returns either the numpy or cupy module, cupy module is returned if any argument is on the GPU.
+    """
+    return cupy if any(is_on_gpu(arg) for arg in args) else numpy
+
+def get_ndimage_module(*args):
+    """
+    Returns either the scipy.ndimage or cupyx.scipy.ndimage module, cupy module is returned if any
+    argument is on the GPU.
+    """
+    return cupyx.scipy.ndimage if any(is_on_gpu(arg) for arg in args) else scipy.ndimage
+
+def as_numpy(arr):
+    """Get the given array as a numpy array."""
+    return arr.get() if is_on_gpu(arr) else numpy.asanyarray(arr)
 
 def is_single_channel_image(im):
     """
@@ -61,8 +80,7 @@ def check_image_mask_single_channel(im, mask):
         if mask.dtype != bool or mask.shape != im.shape:
             raise ValueError('The mask must be a binary image with equal dimensions to the image')
         if is_on_gpu(im) or is_on_gpu(mask):
-            from cupy import asanyarray # pylint: disable=import-error
-            im, mask = asanyarray(im), asanyarray(mask)
+            im, mask = cupy.asanyarray(im), cupy.asanyarray(mask)
     return im, mask
 
 
@@ -70,12 +88,11 @@ def check_image_mask_single_channel(im, mask):
 def get_dtype_min_max(dt):
     """Gets the min and max value a dtype can take"""
     if not hasattr(get_dtype_min_max, 'mn_mx'):
-        from numpy import iinfo
-        mn_mx = {t:(iinfo(t).min, iinfo(t).max) for t in INT_TYPES + UINT_TYPES}
+        mn_mx = {t:(numpy.iinfo(t).min, numpy.iinfo(t).max) for t in INT_TYPES + UINT_TYPES}
         mn_mx.update({t:(t(False), t(True)) for t in BIT_TYPES})
         mn_mx.update({t:(t('0.0'), t('1.0')) for t in FLOAT_TYPES})
         get_dtype_min_max.mn_mx = mn_mx
-    return get_dtype_min_max.mn_mx[dtype(dt).type]
+    return get_dtype_min_max.mn_mx[numpy.dtype(dt).type]
 
 def get_dtype_min(dt):
     """Gets the min value a dtype can take"""
@@ -110,7 +127,7 @@ def as_unsigned(im):
     """
     if im.dtype.kind == 'i':
         dt = im.dtype
-        im = im.view(dtype(dt.byteorder+'u'+str(dt.itemsize))) - get_dtype_min(dt)
+        im = im.view(numpy.dtype(dt.byteorder+'u'+str(dt.itemsize))) - get_dtype_min(dt)
     return im
 
 def as_float(im):
@@ -125,8 +142,36 @@ def as_float(im):
         return im / get_dtype_max(im.dtype)
     return im.astype(float, copy=False)
 
+def ci_artificial_gpu_support(calc_info):
+    """
+    Decorator for calc_info(im, **kwargs) functions that adds "support" for GPU-based images by
+    taking the image provided and converting it to a numpy array and taking the returned values and
+    converting back to a GPU array (if the original was a GPU array).
+    """
+    def _wrapper(im, *args, **kwargs):
+        if not is_on_gpu(im):
+            return calc_info(im, *args, **kwargs)
+        from cupy import asanyarray # pylint: disable=import-error
+        values = calc_info(im.get(), *args, **kwargs)
+        return asanyarray(values) if not isinstance(values, tuple) else \
+            (asanyarray(values[0]), values[1])
+    _wrapper.__doc__ = calc_info.__doc__
+    return _wrapper
+
 
 ##### Other Helpers #####
+def imhist(im, nbins=256, mask=None):
+    """Calculate the histogram of an image. By default it uses 256 bins (nbins)."""
+    im, mask = check_image_mask_single_channel(im, mask)
+    if mask is not None: im = im[mask]
+    return __imhist(im, nbins)
+
+def __imhist(im, nbins=256):
+    """Core of imhist with no checks or handling of mask."""
+    xp = get_array_module(im)
+    mn, mx = get_im_min_max(im)
+    return xp.histogram(im, xp.linspace(mn, mx, nbins+1))[0]
+
 @lru_cache(maxsize=None)
 def get_diff_slices(ndim):
     """
@@ -184,10 +229,9 @@ def make_readonly(value):
     Makes numpy arrays read-only. If the value is a tuple then it is searched for arrays
     recursively. Lists are changed into tuples. Anything else is just return as-is.
     """
-    from numpy import ndarray
     if isinstance(value, (tuple, list)):
         return tuple(make_readonly(elem) for elem in value)
-    if isinstance(value, ndarray):
+    if isinstance(value, numpy.ndarray):
         value.flags.writeable = False
     return value
 
@@ -208,10 +252,9 @@ def dist2_matrix(order, ndim):
     Generate a squared-distance matrix with ndim dimensions that has at least order unique distances
     in it. The distance are all relative to the middle of the matrix.
     """
-    from numpy import ceil, ogrid
-    size = ceil(0.5*sqrt(8*order+1)-0.5).astype(int)-1
+    size = numpy.ceil(0.5*numpy.sqrt(8*order+1)-0.5).astype(int)-1
     slc = slice(-size, size+1) # the filter is 2*size+1 square
-    return sum(x*x for x in ogrid[(slc,)*ndim])
+    return sum(x*x for x in numpy.ogrid[(slc,)*ndim])
 
 @lru_cache_array
 def generate_disks(order, ndim, hollow=False):
@@ -225,9 +268,8 @@ def generate_disks(order, ndim, hollow=False):
     Each individual mask is made to be as small as possible by removing extraneous 0s on the
     outside.
     """
-    from numpy import unique
     raw = dist2_matrix(order, ndim)
-    values = unique(raw)[1:order][::-1]
+    values = numpy.unique(raw)[1:order][::-1]
     return tuple(trim_zeros((raw == i) if hollow else (raw <= i)) for i in values)
 
 def trim_zeros(arr):
@@ -285,10 +327,9 @@ def __decompose_2d(kernel):
     """
     # NOTE: this may have some scaling quirks
     # pylint: disable=invalid-name
-    from numpy.linalg import svd
-    u, s, vh = svd(kernel)
+    u, s, vh = numpy.linalg.svd(kernel)
     if sum(s > max(kernel.shape)*EPS*s.max()) != 1: return None, None
-    u, s, vh = u[:, 0], sqrt(s[0]), vh[0, :]
+    u, s, vh = u[:, 0], numpy.sqrt(s[0]), vh[0, :]
     # Make it so that the majority of values are not negative
     if (u < 0).sum() + (vh < 0).sum() > sum(kernel.shape) // 2: s *= -1
     return u*s, vh*s
@@ -306,13 +347,9 @@ def block_view(im, block_size):
     last being exactly block_size.
     """
     if len(block_size) != im.ndim: raise ValueError('block_size')
-    if is_on_gpu(im):
-        from cupy.lib.stride_tricks import as_strided # pylint: disable=import-error
-    else:
-        from numpy.lib.stride_tricks import as_strided
     shape = tuple(x//sz for x, sz in zip(im.shape, block_size)) + block_size
     strides = tuple(stride*sz for stride, sz in zip(im.strides, block_size)) + im.strides
-    return as_strided(im, shape=shape, strides=strides)
+    return get_array_module(im).lib.stride_tricks.as_strided(im, shape=shape, strides=strides)
 
 def reduce_blocks(blocks, func, out=None):
     """

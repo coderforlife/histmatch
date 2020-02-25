@@ -9,6 +9,9 @@ from itertools import product
 
 from numpy import asarray, empty
 
+from ..util import ci_artificial_gpu_support
+
+@ci_artificial_gpu_support
 def calc_info(im, detail_magnitude=True, nlevels=2, kernel='haar'):
     """
     Assign strict ordering to image pixels. The returned value is the same shape but with an extra

@@ -10,7 +10,7 @@ Implements basic strict ordering techniques for use with exact histogram equaliz
 """
 
 from numpy import uint64
-from ..util import is_on_gpu, as_unsigned, as_float
+from ..util import as_unsigned, get_array_module, get_ndimage_module, ci_artificial_gpu_support
 from ..util import log2i, get_uint_dtype_fit, get_dtype_max, generate_disks
 
 def calc_info_rand(im):
@@ -21,16 +21,10 @@ def calc_info_rand(im):
     REFERENCES
       1. Rosenfeld A and Kak A, 1982, "Digital Picture Processing"
     """
-    if is_on_gpu(im):
-        from cupy.random import random # pylint: disable=import-error
-    else:
-        from numpy.random import random
     if im.dtype.kind in 'iub':
-        im = im + random(im.shape)
+        im = im + get_array_module(im).random.random(im.shape)
         im -= 0.5
     return im
-
-calc_info_rand.accepts_cupy = True
 
 
 def calc_info_gaussian_laplacian(im, sigmas=(0.5, 1.0), laplacian_mag=True):
@@ -50,51 +44,47 @@ def calc_info_gaussian_laplacian(im, sigmas=(0.5, 1.0), laplacian_mag=True):
       1. Coltuc D and Bolon P, 1999, "Strict ordering on discrete images and applications"
     """
     # this uses scipy's 'reflect' mode (duplicated edge)
-    if is_on_gpu(im):
-        from cupy import abs, multiply, empty, zeros # pylint: disable=redefined-builtin, import-error
-        from cupyx.scipy.ndimage import gaussian_filter, laplace # pylint: disable=redefined-builtin, import-error
-    else:
-        from numpy import abs, multiply, empty, zeros # pylint: disable=redefined-builtin
-        from scipy.ndimage import gaussian_filter, laplace
+    from ..util import as_float
+    xp = get_array_module(im)
+    ndi = get_ndimage_module(im)
 
     # Compaction only works for 8-bit integers
     # On the CPU compaction is a bit slower but will sort faster later
     if im.dtype.kind in 'iub' and im.dtype.itemsize == 1:
         im = as_unsigned(im)
-        out = zeros((len(sigmas),) + im.shape, uint64)
+        out = xp.zeros((len(sigmas),) + im.shape, uint64)
         out[-1, ...] = im
         out[-1, ...] <<= 56 # identity in 56-63 (8 bits)
-        gauss, lap = empty(im.shape), empty(im.shape)
-        tmp = empty(im.shape, uint64)
+        gauss, lap = xp.empty(im.shape), xp.empty(im.shape)
+        tmp = xp.empty(im.shape, uint64)
         for i, sigma in enumerate(sigmas):
-            gaussian_filter(im, sigma, output=gauss, truncate=2)
-            laplace(gauss, output=lap)
+            ndi.gaussian_filter(im, sigma, output=gauss, truncate=2)
+            ndi.laplace(gauss, output=lap)
             if laplacian_mag:
-                abs(lap, lap)
+                xp.abs(lap, lap)
             else:
                 lap += 1020 # needs to be positive
             # Gaussian filter in bits 26-49 (24 bits)
-            tmp[...] = multiply(gauss, 1<<16, gauss).round(out=gauss)
+            tmp[...] = xp.multiply(gauss, 1<<16, gauss).round(out=gauss)
             tmp <<= 26
             out[-i-1, ...] |= tmp
             # Laplacian filter in bits 0-25 (26 bits)
-            tmp[...] = multiply(lap, 1<<16, lap).round(out=lap)
+            tmp[...] = xp.multiply(lap, 1<<16, lap).round(out=lap)
             out[-i-1, ...] |= tmp
         return out[0] if len(sigmas) <= 1 else out
 
     # Non-compacted version
     im = as_float(im)
-    out = empty((2*len(sigmas)+1,) + im.shape)
+    out = xp.empty((2*len(sigmas)+1,) + im.shape)
     out[-1, ...] = im
     for i, sigma in enumerate(sigmas):
-        gauss = gaussian_filter(im, sigma, output=out[-2*i-2, ...], truncate=2)
-        lap = laplace(gauss, output=out[-2*i-3, ...])
-        if laplacian_mag: abs(lap, lap)
+        gauss = ndi.gaussian_filter(im, sigma, output=out[-2*i-2, ...], truncate=2)
+        lap = ndi.laplace(gauss, output=out[-2*i-3, ...])
+        if laplacian_mag: xp.abs(lap, lap)
     return out
 
-calc_info_gaussian_laplacian.accepts_cupy = True
 
-
+@ci_artificial_gpu_support
 def calc_info_mean_laplacian(im, order=3, laplacian_mag=True):
     """
     Assign strict ordering to image pixels. The returned value is the same shape as the image but
@@ -135,12 +125,12 @@ def calc_info_mean_laplacian(im, order=3, laplacian_mag=True):
 
 def __gen_mean_laplacian_filtered(im, filters, laplacian_mag=True):
     """Generator for Mean-Laplacian strict ordering."""
-    from numpy import int64, abs, empty # pylint: disable=redefined-builtin
+    xp = get_array_module(im)
     from ..util import correlate
-    data = empty(im.shape, float if im.dtype.kind == 'f' else int64)
+    data = xp.empty(im.shape, float if im.dtype.kind == 'f' else xp.int64)
     for i, fltr in enumerate(filters):
         correlate(im, fltr, output=data)
-        if laplacian_mag and i%2 == 1: abs(data, data)
+        if laplacian_mag and i%2 == 1: xp.abs(data, data)
         yield data
 
 def __make_laplacian(fltr):
@@ -172,24 +162,21 @@ def calc_info_local_contrast(im, order=6):
       1. Coltuc D and Bolon P, 1999, "Strict ordering on discrete images and applications"
     """
     # this uses scipy's 'reflect' mode (duplicated edge) and thus has no effect
-    if is_on_gpu(im):
-        from cupy import empty, zeros, asarray # pylint: disable=import-error
-        from cupyx.scipy.ndimage import maximum_filter, minimum_filter # pylint: disable=import-error
-    else:
-        from numpy import empty, zeros, asarray
-        from scipy.ndimage import maximum_filter, minimum_filter
+    xp = get_array_module(im)
+    ndi = get_ndimage_module(im)
+
     if order < 1: raise ValueError('order')
     im = as_unsigned(im)
     disks = generate_disks(order, im.ndim)
 
     # Floating-point images cannot be compacted
     if im.dtype.type == 'f':
-        out = empty((order,) + im.shape)
+        out = xp.empty((order,) + im.shape)
         min_tmp = out[-1, ...]
         for i, disk in enumerate(disks):
-            disk = asarray(disk)
-            maximum_filter(im, footprint=disk, output=out[i, ...])
-            minimum_filter(im, footprint=disk, output=min_tmp)
+            disk = xp.asanyarray(disk)
+            ndi.maximum_filter(im, footprint=disk, output=out[i, ...])
+            ndi.minimum_filter(im, footprint=disk, output=min_tmp)
             out[i, ...] -= min_tmp
         out[-1, ...] = im
         return out
@@ -198,13 +185,13 @@ def calc_info_local_contrast(im, order=6):
     # On the CPU compaction is a bit slower but will sort faster later
     bpp = im.dtype.itemsize*8
     dst_type = uint64 if order*bpp >= 64 else get_uint_dtype_fit(order*bpp)
-    out = zeros(((order*bpp+63)//64,) + im.shape, dst_type)
-    max_tmp, min_tmp = empty(im.shape, dst_type), empty(im.shape, dst_type)
+    out = xp.zeros(((order*bpp+63)//64,) + im.shape, dst_type)
+    max_tmp, min_tmp = xp.empty(im.shape, dst_type), xp.empty(im.shape, dst_type)
     layer, shift = 0, 0
     for disk in disks:
-        disk = asarray(disk)
-        maximum_filter(im, footprint=disk, output=max_tmp)
-        minimum_filter(im, footprint=disk, output=min_tmp)
+        disk = xp.asanyarray(disk)
+        ndi.maximum_filter(im, footprint=disk, output=max_tmp)
+        ndi.minimum_filter(im, footprint=disk, output=min_tmp)
         max_tmp -= min_tmp
         max_tmp <<= shift
         out[layer, ...] |= max_tmp
@@ -217,8 +204,6 @@ def calc_info_local_contrast(im, order=6):
     im <<= shift
     out[-1, ...] |= im
     return out[0, ...] if layer == 0 else out
-
-calc_info_local_contrast.accepts_cupy = True
 
 
 def calc_info_neighborhood_avg(im, size=3, invert=False):
@@ -247,11 +232,8 @@ def calc_info_neighborhood_avg(im, size=3, invert=False):
          Proceedings of the Second Canadian Conference on Computer and Robot Vision.
     """
     # this uses scipy's 'reflect' mode (duplicated edge) ([2] says this should be constant-0)
-    if is_on_gpu(im):
-        from cupy import empty, subtract # pylint: disable=import-error
-    else:
-        from numpy import empty, subtract
     from ..util import FLOAT64_NMANT
+    xp = get_array_module(im)
 
     # Deal with arguments
     if size < 3 or size % 2 != 1: raise ValueError('size')
@@ -263,41 +245,35 @@ def calc_info_neighborhood_avg(im, size=3, invert=False):
 
     if dt.kind == 'f' or nbits > FLOAT64_NMANT:
         # No compaction possible
-        out = empty((2,) + im.shape)
+        out = xp.empty((2,) + im.shape)
         avg = __correlate_uniform(im, size, out[0, ...])
         if invert:
-            subtract(avg.max() if dt.kind == 'f' else (n_neighbors * get_dtype_max(dt)), avg, avg)
+            xp.subtract(avg.max() if dt.kind == 'f' else
+                        (n_neighbors * get_dtype_max(dt)), avg, avg)
         out[1, ...] = im # the original image is still part of this
     else:
         # Compact the results
-        out = __correlate_uniform(im, size, empty(im.shape, uint64))
+        out = __correlate_uniform(im, size, xp.empty(im.shape, uint64))
         if invert:
-            subtract(n_neighbors * get_dtype_max(dt), out, out)
+            xp.subtract(n_neighbors * get_dtype_max(dt), out, out)
         im = im.astype(out.dtype)
         im <<= shift
         out |= im # the original image is still part of this
     return out
-
-calc_info_neighborhood_avg.accepts_cupy = True
 
 def __correlate_uniform(im, size, output):
     """
     Uses repeated scipy.ndimage.filters.correlate1d() calls to compute a uniform filter. Unlike
     scipy.ndimage.filters.uniform_filter() this just uses ones(size) instead of ones(size)/size.
     """
-    if is_on_gpu(im):
-        from cupy import ones # pylint: disable=import-error
-        from cupyx.scipy.ndimage import correlate1d # pylint: disable=import-error
-    else:
-        from numpy import ones
-        from scipy.ndimage import correlate1d
-    weights = ones(size)
+    weights = get_array_module(im).ones(size)
     for axis in range(im.ndim):
-        correlate1d(im, weights, axis, output)
+        get_ndimage_module(im).correlate1d(im, weights, axis, output)
         im = output
     return output
 
 
+@ci_artificial_gpu_support
 def calc_info_neighborhood_voting(im, size=3, invert=False):
     """
     Assign strict ordering to image pixels. The returned value is the same shape as the image but

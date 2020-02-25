@@ -2,10 +2,10 @@
 Generalized code used for compacting arbitrary sets of filters.
 """
 
-from numpy import empty, zeros, uint64
-from ..util import get_dtype_max, as_unsigned, log2i
+from numpy import uint64
+from ..util import get_array_module, get_dtype_max, as_unsigned
 
-def compact(im, scales, filtered_gen, args):
+def compact(im, scales, filtered_gen, args=()):
     """
     Run filter compaction for an arbitrary set of filters. The image must be an integral type of
     either 8 or 16 bits and scales is a list of tuples of the maximum multiplication of the negative
@@ -17,6 +17,8 @@ def compact(im, scales, filtered_gen, args):
     must be generated starting with the most important to the least important. The identity filtered
     image is not included.
     """
+    xp = get_array_module(im)
+
     # Make sure data is unsigned
     im = as_unsigned(im)
     filtered_gen = filtered_gen(im, *args)
@@ -25,7 +27,7 @@ def compact(im, scales, filtered_gen, args):
     mx, bpp = get_dtype_max(im.dtype), im.dtype.itemsize * 8
     extra_bits = __compute_extra_bits_from_scales(scales)
     nlayers = __compute_num_layers(bpp, extra_bits)
-    out = zeros((nlayers,) + im.shape, uint64)
+    out = xp.zeros((nlayers,) + im.shape, uint64)
 
     # Save the original image
     layer, shift = nlayers-1, 64-bpp
@@ -33,16 +35,16 @@ def compact(im, scales, filtered_gen, args):
     out[layer, ...] <<= shift
 
     # Perform filtering
-    for (neg, _), ex_bits, filtered in zip(scales, extra_bits, filtered_gen):
+    for (neg, _), extra_bits, filtered in zip(scales, extra_bits, filtered_gen):
         # Make sure all values are positive
         if neg: filtered += neg*mx
         filtered = filtered.view(uint64)
 
         # Adjust the save location
-        shift -= bpp + ex_bits
+        shift -= bpp + extra_bits
         if shift < 0:
             layer -= 1
-            shift = 64 - bpp - ex_bits
+            shift = 64 - bpp - extra_bits
 
         # Save the filtered image
         filtered <<= shift
@@ -50,13 +52,14 @@ def compact(im, scales, filtered_gen, args):
 
     return out[0, ...] if nlayers == 1 else out
 
-def non_compact(im, n, filtered_gen, args):
+def non_compact(im, n, filtered_gen, args=()):
     """
     Generates a non-compacted filter set using a very similar interface to the compact function so
     that the same generator could be used for both easily. The argument n is the number of filtered
     images to be generated. The filtered images generated should be floats.
     """
-    out = empty((n + 1,) + im.shape)
+    xp = get_array_module(im)
+    out = xp.empty((n + 1,) + im.shape)
     out[-1, ...] = im
     filtered_gen = filtered_gen(out[-1, ...], *args)
     for i, data in enumerate(filtered_gen):
@@ -68,6 +71,7 @@ def __compute_extra_bits_from_scales(scales):
     Compute the number of extra bits needed to store values with the given scales. Each scale is a
     tuple of the maximum multiplication possible in the negative and positive directions.
     """
+    from ..util import log2i
     return [log2i(pos + neg) for neg, pos in scales]
 
 def __compute_num_layers(bpp, extra_bits, layer_bits=64):

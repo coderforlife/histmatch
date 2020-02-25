@@ -3,7 +3,9 @@ Implements wavelet approach strict ordering for use with exact histogram equaliz
 """
 
 from itertools import product
+from ..util import ci_artificial_gpu_support
 
+@ci_artificial_gpu_support
 def calc_info(im, nlevels=2, wavelet='haar', scale_coeffs=False, return_fails=False):
     """
     Perform exact histogram equalization using the wavelet approach as defined by [1]. Unlike the

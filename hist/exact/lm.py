@@ -2,8 +2,7 @@
 Implements local means strict ordering for use with exact histogram equalization.
 """
 
-from numpy import uint64, ceil, log2, unique
-from ..util import FLOAT64_NMANT, dist2_matrix, trim_zeros, is_on_gpu, as_unsigned, lru_cache_array
+from ..util import get_array_module, get_ndimage_module, lru_cache_array, FLOAT64_NMANT
 
 def calc_info(im, order=6):
     """
@@ -33,13 +32,9 @@ def calc_info(im, order=6):
          Transcations on Image Processing 15(5):1143-1152
     """
     # this uses scipy's 'reflect' mode (duplicated edge)
-    if is_on_gpu(im):
-        # pylint: disable=import-error
-        from cupy import empty, asanyarray
-        from cupyx.scipy.ndimage import correlate
-    else:
-        from numpy import empty, asanyarray
-        from scipy.ndimage import correlate
+    from ..util import as_unsigned
+    xp = get_array_module(im)
+    ndi = get_ndimage_module(im)
 
     # Deal with arguments
     if order < 2: raise ValueError('order')
@@ -51,21 +46,19 @@ def calc_info(im, order=6):
 
     if len(filters) == 1 and (includes_order_one or FLOAT64_NMANT + dt.itemsize*8 <= 64):
         # Single convolution
-        out = correlate(im, asanyarray(filters[0]), empty(im.shape, uint64))
+        out = ndi.correlate(im, xp.asanyarray(filters[0]), xp.empty(im.shape, xp.uint64))
         if not includes_order_one:
-            out |= im.astype(uint64) << FLOAT64_NMANT
+            out |= im.astype(xp.uint64) << FLOAT64_NMANT
         return out
 
     # Convolve filters with the image and stack
     im = im.astype(float, copy=False)
-    out = empty((len(filters)+(not includes_order_one),) + im.shape)
+    out = xp.empty((len(filters)+(not includes_order_one),) + im.shape)
     for i, fltr in enumerate(filters):
-        correlate(im, asanyarray(fltr), out[i, ...])
+        ndi.correlate(im, xp.asanyarray(fltr), out[i, ...])
     if not includes_order_one:
         out[-1, ...] = im
     return out
-
-calc_info.accepts_cupy = True
 
 @lru_cache_array
 def __get_filters(dt, order, ndim):
@@ -80,17 +73,20 @@ def __get_filters(dt, order, ndim):
     it so less convolutions are required. In fact for 8-bit images with order 6 or less only a
     single filter is needed.
     """
+    import numpy
+    from ..util import dist2_matrix, trim_zeros
+
     # Create the basic filter based on distance^2 from center
     raw = dist2_matrix(order, ndim)
 
     # Cannot compact these types, just return a series of standard filters
     if dt.kind == 'f' or dt.itemsize > 2:
-        return tuple(trim_zeros(raw == i) for i in unique(raw)[1:order][::-1]), False
+        return tuple(trim_zeros(raw == i) for i in numpy.unique(raw)[1:order][::-1]), False
 
     # if dt.kind == 'u' and dt.itemsize <= 2 - compact filters
     nbits = dt.itemsize*8
-    vals, counts = unique(raw, return_counts=True)
-    extra_bits = [int(x) for x in ceil(log2(counts[:order]))] # perfect up to any reasonable value
+    vals, counts = numpy.unique(raw, return_counts=True)
+    extra_bits = [int(x) for x in numpy.ceil(numpy.log2(counts[:order]))] # reasonably perfect
     order -= 1 # order 1 is at index 0
     out = []
     # Don't start a new filter for just the central pixel (that is why it is order > 0)

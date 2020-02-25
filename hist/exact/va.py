@@ -4,7 +4,7 @@ Implements variation approach strict ordering for use with exact histogram equal
 
 from numpy import asarray, empty, sqrt, subtract, nonzero
 
-from ..util import lru_cache_array
+from ..util import ci_artificial_gpu_support, lru_cache_array
 
 SQRT2I = 1/sqrt(2)
 SQRT3I = 1/sqrt(3)
@@ -45,6 +45,7 @@ del SQRT2I, SQRT3I
 
 # pylint: disable=invalid-name
 
+@ci_artificial_gpu_support
 def calc_info(im, niters=5, beta=None, alpha=None, gamma=None):
     """
     Assign strict ordering to image pixels. The returned value is the same shape as the image but

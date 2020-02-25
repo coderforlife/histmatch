@@ -162,7 +162,7 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
 
     Additional references for each are available with their respective calc_info functions.
     """
-    from ..util import check_image_mask_single_channel, is_on_gpu
+    from ..util import check_image_mask_single_channel
 
     # Check arguments
     im, mask = check_image_mask_single_channel(im, mask)
@@ -183,7 +183,7 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
     del values
 
     ##### Create the transform that is the size of the image but with sorted histogram values #####
-    transform = __calc_transform(h_dst, im.dtype, n, idx.size, is_on_gpu(idx))
+    transform = __calc_transform(h_dst, im.dtype, n, idx)
     del h_dst
 
     ##### Create the equalized image #####
@@ -199,13 +199,13 @@ def __check_h_dst(h_dst, n):
     """
     # pylint: disable=invalid-name
     from numbers import Integral
-    from numpy import tile, floor, intp, asanyarray
-    from ..util import is_on_gpu
+    from numpy import tile, floor, intp
+    from ..util import as_numpy
     if isinstance(h_dst, Integral):
         h_dst = int(h_dst)
         h_dst = tile(n/h_dst, h_dst)
     else:
-        h_dst = h_dst.get() if is_on_gpu(h_dst) else asanyarray(h_dst)
+        h_dst = as_numpy(h_dst)
         h_dst = h_dst.ravel()*(n/h_dst.sum())
     if len(h_dst) < 2: raise ValueError('h_dst')
     H_whole = floor(h_dst).astype(intp, copy=False)
@@ -230,10 +230,8 @@ def __calc_info(im, method, **kwargs):
     GPU at the end. Thus if given a GPU array this always returns a GPU array.
     """
     # pylint: disable=too-many-branches
-    from ..util import is_on_gpu
     if method in ('arbitrary', None):
         calc_info = lambda x: x
-        calc_info.accepts_cupy = True
     elif method in ('rand', 'random'):
         from .basic import calc_info_rand as calc_info
     elif method == 'na':
@@ -258,15 +256,7 @@ def __calc_info(im, method, **kwargs):
         from .optimum import calc_info
     else:
         raise ValueError('method')
-    need_gpu_conversion = not getattr(calc_info, 'support_cupy', False) and is_on_gpu(im)
-    if need_gpu_conversion:
-        im = im.get()
-    values = calc_info(im, **kwargs)
-    if need_gpu_conversion:
-        from cupy import asanyarray # pylint: disable=import-error
-        values = asanyarray(values) if not isinstance(values, tuple) else \
-            (asanyarray(values[0]), values[1])
-    return values
+    return calc_info(im, **kwargs)
 
 def __sort_pixels(values, shape, mask=None, return_fails=False, stable=False):
     """
@@ -319,21 +309,18 @@ def __sort_pixels(values, shape, mask=None, return_fails=False, stable=False):
     if not_equals.ndim == 2: not_equals = not_equals.any(1) # for lexsorted values
     return idx, int(not_equals.size - not_equals.sum())
 
-def __calc_transform(h_dst, dt, n_mask, n_full, on_gpu=False):
+def __calc_transform(h_dst, dt, n_mask, idx):
     """Create the transform that is the size of the image but with sorted histogram values."""
-    from hist.util import get_dtype_min_max
-    if on_gpu:
-        from cupy import zeros, linspace, ElementwiseKernel, asarray # pylint: disable=import-error
-    else:
-        from numpy import zeros, linspace
+    from ..util import get_dtype_min_max, get_array_module, is_on_gpu
 
+    xp = get_array_module(idx)
     mn, mx = get_dtype_min_max(dt)
-    values = linspace(mn, mx, len(h_dst), dtype=dt)
-    transform = zeros(n_full, dtype=dt) # start with all zoers
+    values = xp.linspace(mn, mx, len(h_dst), dtype=dt)
+    transform = xp.zeros(idx.size, dtype=dt) # start with all zoers
 
-    if on_gpu:
+    if is_on_gpu(idx):
         # Even though .repeat() is supported in cupy, it is slow - this is WAY faster
-        trans_kernel = ElementwiseKernel(
+        trans_kernel = xp.ElementwiseKernel(
             'raw int64 h_dst_cs, raw T values', 'T transform',
             '''
             int j = 0;
@@ -341,24 +328,21 @@ def __calc_transform(h_dst, dt, n_mask, n_full, on_gpu=False):
             while (h_dst_cs[j] <= i) { j++; }
             transform = values[j];''',
             'calc_transform')
-        trans_kernel(asarray(h_dst).cumsum(), values, transform[-n_mask:])
+        trans_kernel(xp.asarray(h_dst).cumsum(), values, transform[-n_mask:])
     else:
         transform[-n_mask:] = values.repeat(h_dst)
     return transform
 
 def __apply_transform(idx, transform, shape, mask=None):
     """Apply a transform with the strict ordering in idx."""
-    from ..util import is_on_gpu
-    if is_on_gpu(idx):
-        from cupy import zeros, empty, place # pylint: disable=import-error
-    else:
-        from numpy import zeros, empty, place
+    from ..util import get_array_module
+    xp = get_array_module(idx)
     if mask is not None:
-        mask_idx = empty(idx.size, transform.dtype)
+        mask_idx = xp.empty(idx.size, transform.dtype)
         mask_idx.put(idx, transform)
-        out = zeros(shape, transform.dtype)
-        place(out, mask, mask_idx)
+        out = xp.zeros(shape, transform.dtype)
+        xp.place(out, mask, mask_idx)
     else:
-        out = empty(shape, transform.dtype)
+        out = xp.empty(shape, transform.dtype)
         out.put(idx, transform)
     return out
