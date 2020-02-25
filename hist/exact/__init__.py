@@ -47,7 +47,7 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
         enhancement of edges as described in [4]. Remaining ties are broken via arbitrary as per
         [3] where [4] instead didn't break remaining ties at all.
 
-        Method has been adapted to support 3D data. Does not support anisotropic data.
+        Method adapted to support 3D data. Does not support anisotropic data. Supports using GPU.
 
     NV: Neighborhood Voting by Eramian and Mould [4]
         Uses the number of pixels in the 3-by-3 neighborhood that are greater than the central pixel
@@ -67,7 +67,7 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
         gives information about local brightness and the other one gives information about the
         edges.
 
-        Method has been adapted to support 3D data. Does not support anisotropic data.
+        Method adapted to support 3D data. Does not support anisotropic data. Supports using GPU.
 
     ML: Mean and Laplacian Filtering by Jung [7]
         Uses a series of local mean and Laplacian convolutions with the order increasing to use
@@ -82,7 +82,7 @@ def histeq_exact(im, h_dst=256, mask=None, method='VA', return_fails=False, stab
         between same-valued pixels. Accepts a `order` argument which has a default of 6 that
         controls how far away pixels are used to help distinguish pixels from each other.
 
-        Method has been adapted to support 3D data. Does not support anisotropic data.
+        Method adapted to support 3D data. Does not support anisotropic data. Supports using GPU.
 
     LM: Local Means by Coltuc, Bolon and Chassery [5,6]
         Uses the gray levels of expanding mean filters to distinguish between same-valued pixels.
