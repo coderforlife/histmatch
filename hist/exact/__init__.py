@@ -316,22 +316,31 @@ def __calc_transform(h_dst, dt, n_mask, idx):
     xp = get_array_module(idx)
     mn, mx = get_dtype_min_max(dt)
     values = xp.linspace(mn, mx, len(h_dst), dtype=dt)
-    transform = xp.zeros(idx.size, dtype=dt) # start with all zoers
+    transform = xp.zeros(idx.size, dtype=dt) # start with all zeros
 
     if is_on_gpu(idx):
-        # Even though .repeat() is supported in cupy, it is slow - this is WAY faster
-        trans_kernel = xp.ElementwiseKernel(
-            'raw int64 h_dst_cs, raw T values', 'T transform',
-            '''
-            int j = 0;
-            // TODO: would be even faster using a binary search for j
-            while (h_dst_cs[j] <= i) { j++; }
-            transform = values[j];''',
-            'calc_transform')
+        # Even though .repeat() is supported in cupy, it is very slow - this is WAY faster
+        trans_kernel = __get_calc_transform_kernel()
         trans_kernel(xp.asarray(h_dst).cumsum(), values, transform[-n_mask:])
     else:
         transform[-n_mask:] = values.repeat(h_dst)
     return transform
+
+try:
+    import cupy
+    @cupy.memoize()
+    def __get_calc_transform_kernel():
+        return cupy.ElementwiseKernel(
+            'raw int64 h_dst_cs, raw T values', 'T transform',
+            '''int left = 0, right = h_dst_cs.shape()[0];
+while (left < right) {
+    int j = left + (right - left)/2; // (left + right) / 2
+    if (h_dst_cs[j] <= i) { left = j + 1; }
+    else { right = j; }
+}
+transform = values[left];''', 'calc_transform')
+except ImportError:
+    pass
 
 def __apply_transform(idx, transform, shape, mask=None):
     """Apply a transform with the strict ordering in idx."""
