@@ -10,8 +10,8 @@ Implements basic strict ordering techniques for use with exact histogram equaliz
 """
 
 from numpy import uint64
-from ..util import as_unsigned, get_array_module, get_ndimage_module, ci_artificial_gpu_support
-from ..util import log2i, get_uint_dtype_fit, get_dtype_max, generate_disks
+from ..util import get_array_module, is_on_gpu, get_ndimage_module, ci_artificial_gpu_support
+from ..util import as_unsigned, log2i, get_uint_dtype_fit, get_dtype_max, generate_disks
 
 def calc_info_rand(im):
     """
@@ -126,10 +126,10 @@ def calc_info_mean_laplacian(im, order=3, laplacian_mag=True):
 def __gen_mean_laplacian_filtered(im, filters, laplacian_mag=True):
     """Generator for Mean-Laplacian strict ordering."""
     xp = get_array_module(im)
-    from ..util import correlate
+    ndi = get_ndimage_module(im)
     data = xp.empty(im.shape, float if im.dtype.kind == 'f' else xp.int64)
     for i, fltr in enumerate(filters):
-        correlate(im, fltr, output=data)
+        ndi.correlate(im, fltr, output=data)
         if laplacian_mag and i%2 == 1: xp.abs(data, data)
         yield data
 
@@ -327,19 +327,19 @@ def __count_votes(im, out, size, invert):
       1. Eramian M and Mould D, 2005, "Histogram Equalization using Neighborhood Metrics",
          Proceedings of the Second Canadian Conference on Computer and Robot Vision.
     """
-    # Try to use the Cython functions if possible - they are ~160x faster!
+        # Try to use the Cython functions if possible - they are ~160x faster!
     from numpy import empty
-    try:
-        from scipy import LowLevelCallable
-        import hist.exact.__basic as cy
-        voting = LowLevelCallable.from_cython(cy, 'vote_lesser' if invert else 'vote_greater')
-    except ImportError:
-        # Fallback
+        try:
+            from scipy import LowLevelCallable
+            import hist.exact.__basic as cy
+            voting = LowLevelCallable.from_cython(cy, 'vote_lesser' if invert else 'vote_greater')
+        except ImportError:
+            # Fallback
         from numpy import greater, less
-        compare = greater if invert else less
-        tmp = empty(size ** im.ndim, bool)
-        mid = tmp.size // 2
-        voting = lambda x: compare(x[mid], x, tmp).sum()
+            compare = greater if invert else less
+            tmp = empty(size ** im.ndim, bool)
+            mid = tmp.size // 2
+            voting = lambda x: compare(x[mid], x, tmp).sum()
 
     from scipy.ndimage import generic_filter
     generic_filter(im, voting, size, output=out)

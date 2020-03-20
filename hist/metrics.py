@@ -567,12 +567,9 @@ def __compute_contrasts(im, sigma_g1s, sigma_g2s):
     for i, (sigma_g1, sigma_g2) in enumerate(zip(sigma_g1s, sigma_g2s)):
         # Using real-space correlations  (also need to remove rfftn() above but keep the astype)
         # The real-space correlations produce lower values
-        #from .util import correlate, EPS
-        #from scipy.ndimage.filters import _gaussian_kernel1d as gaussian1d # could cache
-        #g_1 = gaussian1d(sigma_g1, 0, int(3 * sigma_g1 + 0.5))
-        #g_2 = gaussian1d(sigma_g2, 0, int(3 * sigma_g2 + 0.5))
-        #center = im if g_1.size == 1 else correlate(im, g_1)
-        #surround = correlate(im, g_2, output=temp)
+        #from .util import EPS
+        #center = im if g_1.size == 1 else ndi.gaussian_filter(im, sigma_g1, truncate=3)
+        #surround = ndi.gaussian_filter(im, sigma_g2, output=temp, truncate=3)
         #surround[surround == 0] = EPS
 
         center = irfftn(fourier_gaussian(im, sigma_g1, im.shape[-1], output=temp))

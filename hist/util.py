@@ -1,7 +1,7 @@
 """
 Basic utilities for working with images.
 
-Any function here that takes arrays can take either numpy or cupy arrays except correlate().
+Any function here that takes arrays can take either numpy or cupy arrays.
 All functions are typically faster with GPU arrays except trim_zeros().
 """
 
@@ -252,7 +252,8 @@ def dist2_matrix(order, ndim):
     Generate a squared-distance matrix with ndim dimensions that has at least order unique distances
     in it. The distance are all relative to the middle of the matrix.
     """
-    size = numpy.ceil(0.5*numpy.sqrt(8*order+1)-0.5).astype(int)-1
+    import math
+    size = int(math.ceil(0.5*math.sqrt(8*order+1)-0.5))-1
     slc = slice(-size, size+1) # the filter is 2*size+1 square
     return sum(x*x for x in numpy.ogrid[(slc,)*ndim])
 
@@ -277,62 +278,11 @@ def trim_zeros(arr):
     Trims rows/columns/planes of all zeros from an array. It is assumed that the array is
     symmetrical in all directions.
     """
-    slices = (slice(1, -1),)*arr.ndim
-    while arr.size and (arr[0] == 0).all():
-        arr = arr[slices]
-    return arr
-
-
-##### Correlate Function #####
-def correlate(im, weights, output=None, mode='reflect', cval=0.0):
-    """
-    Improved version of scipy.ndimage.filters.correlate that checks if a multidimensional filter can
-    be broken into several 1D filters and then performs several 1D correlations instead of an nD
-    correlation which is much faster.
-
-    Additionally it supports the following special weights:
-       if weights is a tuple of 1D vectors it treats it as already decomposed
-       if weights is a 1D ndarray it is used along every axis
-
-    Does not support the origin argument of scipy.ndimage.correlate. The mode argument does not
-    support different values for each axis.
-
-    NOTE: SciPy always converts the weights to float64 and does all of the math as float64 and thus
-    correletions/convolutions with (u)int64 operations may lose lowest significant digits since a
-    float64 cannot represent every integer above 2^52.
-    """
-    # GPU: won't work (no correlate1d function)
-    from scipy.ndimage.filters import correlate, correlate1d # pylint: disable=redefined-outer-name
-    from scipy.ndimage._ni_support import _get_output
-    output = _get_output(output, im)
-    if isinstance(weights, tuple):
-        if len(weights) != im.ndim: raise ValueError('len(weights) != im.ndim')
-        for axis, axis_weights in enumerate(weights):
-            correlate1d(im, axis_weights, axis, output, mode, cval)
-            im = output
-        return output
-    if weights.ndim == 1:
-        for axis in range(im.ndim):
-            correlate1d(im, weights, axis, output, mode, cval)
-            im = output
-        return output
-    # TODO: decompose
-    #if any(x == 1 for x in weights.shape):
-    #    ...
-    return correlate(im, weights, output, mode, cval)
-
-def __decompose_2d(kernel):
-    """
-    Decompose a 2D kernel into 2 1D kernels if possible. Returns None, None otherwise.
-    """
-    # NOTE: this may have some scaling quirks
-    # pylint: disable=invalid-name
-    u, s, vh = numpy.linalg.svd(kernel)
-    if sum(s > max(kernel.shape)*EPS*s.max()) != 1: return None, None
-    u, s, vh = u[:, 0], numpy.sqrt(s[0]), vh[0, :]
-    # Make it so that the majority of values are not negative
-    if (u < 0).sum() + (vh < 0).sum() > sum(kernel.shape) // 2: s *= -1
-    return u*s, vh*s
+    n = (len(arr) + 1) // 2
+    line = arr[(n,)*(arr.ndim-1)] != 0
+    for i in range(n):
+        if line[i]: return arr[(slice(i, -i),)*arr.ndim]
+    return arr[(slice(0, 0),)*arr.ndim]
 
 
 ##### Image as blocks #####
