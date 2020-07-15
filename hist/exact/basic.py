@@ -10,7 +10,7 @@ Implements basic strict ordering techniques for use with exact histogram equaliz
 """
 
 from numpy import uint64
-from ..util import get_array_module, is_on_gpu, get_ndimage_module, ci_artificial_gpu_support
+from ..util import HAS_CUPY, get_array_module, get_ndimage_module, is_on_gpu
 from ..util import as_unsigned, log2i, get_uint_dtype_fit, get_dtype_max, generate_disks
 
 def calc_info_rand(im):
@@ -84,7 +84,6 @@ def calc_info_gaussian_laplacian(im, sigmas=(0.5, 1.0), laplacian_mag=True):
     return out
 
 
-@ci_artificial_gpu_support
 def calc_info_mean_laplacian(im, order=3, laplacian_mag=True):
     """
     Assign strict ordering to image pixels. The returned value is the same shape as the image but
@@ -266,14 +265,15 @@ def __correlate_uniform(im, size, output):
     Uses repeated scipy.ndimage.filters.correlate1d() calls to compute a uniform filter. Unlike
     scipy.ndimage.filters.uniform_filter() this just uses ones(size) instead of ones(size)/size.
     """
+    # TODO: smarter handling of in-place convolutions?
+    ndi = get_ndimage_module(im)
     weights = get_array_module(im).ones(size)
     for axis in range(im.ndim):
-        get_ndimage_module(im).correlate1d(im, weights, axis, output)
+        ndi.correlate1d(im, weights, axis, output)
         im = output
     return output
 
 
-@ci_artificial_gpu_support
 def calc_info_neighborhood_voting(im, size=3, invert=False):
     """
     Assign strict ordering to image pixels. The returned value is the same shape as the image but
@@ -292,7 +292,7 @@ def calc_info_neighborhood_voting(im, size=3, invert=False):
          Proceedings of the Second Canadian Conference on Computer and Robot Vision.
     """
     # this uses scipy's 'reflect' mode (duplicated edge) ([2] says this should be constant-0)
-    from numpy import zeros
+    xp = get_array_module(im)
 
     # Deal with arguments
     if size < 3 or size % 2 != 1: raise ValueError('size')
@@ -304,12 +304,12 @@ def calc_info_neighborhood_voting(im, size=3, invert=False):
 
     if dt.kind == 'f' or nbits > 63:
         # No compaction possible
-        out = zeros((2,) + im.shape, float if dt.kind == 'f' else uint64)
+        out = xp.zeros((2,) + im.shape, float if dt.kind == 'f' else uint64)
         __count_votes(im, out[0, ...], size, invert)
         out[1, ...] = im # the original image is still part of this
     else:
         # Compact the results
-        out = zeros(im.shape, get_uint_dtype_fit(nbits))
+        out = xp.zeros(im.shape, get_uint_dtype_fit(nbits))
         __count_votes(im, out, size, invert)
         im = im.astype(out.dtype)
         im <<= shift
@@ -327,31 +327,31 @@ def __count_votes(im, out, size, invert):
       1. Eramian M and Mould D, 2005, "Histogram Equalization using Neighborhood Metrics",
          Proceedings of the Second Canadian Conference on Computer and Robot Vision.
     """
+    if is_on_gpu(im):
+        voting = __get_count_votes_cupy_kernel(invert)
+
+    else:
         # Try to use the Cython functions if possible - they are ~160x faster!
-    from numpy import empty
         try:
             from scipy import LowLevelCallable
             import hist.exact.__basic as cy
             voting = LowLevelCallable.from_cython(cy, 'vote_lesser' if invert else 'vote_greater')
         except ImportError:
             # Fallback
-        from numpy import greater, less
+            from numpy import empty, greater, less
             compare = greater if invert else less
             tmp = empty(size ** im.ndim, bool)
             mid = tmp.size // 2
             voting = lambda x: compare(x[mid], x, tmp).sum()
 
-    from scipy.ndimage import generic_filter
-    generic_filter(im, voting, size, output=out)
+    # Once we get the appropriate voting function we can call generic filter
+    get_ndimage_module(im).generic_filter(im, voting, size, output=out)
 
-    # Original solution
-    # Doesn't take into image edges or size but was slightly faster than Cython
-    # from numpy import greater, less
-    # from ..util import get_diff_slices
-    # tmp = empty(im.shape, bool)
-    # if invert: greater, less = less, greater
-    # for slc_pos, slc_neg in get_diff_slices(im.ndim):
-    #     tmp_x = tmp[slc_neg]
-    #     out[slc_pos] += greater(im[slc_pos], im[slc_neg], tmp_x)
-    #     out[slc_neg] += less(im[slc_pos], im[slc_neg], tmp_x)
-    # return out
+if HAS_CUPY:
+    import cupy # pylint: disable=import-error
+    @cupy.util.memoize(for_each_device=True)
+    def __get_count_votes_cupy_kernel(invert):
+        sign = '>' if invert else '<'
+        return cupy.ReductionKernel('X x', 'Y y',
+                                    '_raw_x[_in_ind.size()/2]{}x'.format(sign),
+                                    'a + b', 'y = a', '0', 'lt', reduce_type='int')
