@@ -38,7 +38,7 @@ def calc_info(im, nlevels=2, wavelet='haar', scale_coeffs=False, return_fails=Fa
     # this uses pywt's 'symmetric' mode (duplicated edge)
     from pywt import Wavelet
     from ..util import get_dtype_max, as_unsigned
-    from .__wa import argsort # pylint: disable=no-name-in-module
+    from .__wa import argsort # pylint: disable=no-name-in-module, import-error
 
     # Normalize image data to 0 to 1
     im = as_unsigned(im)

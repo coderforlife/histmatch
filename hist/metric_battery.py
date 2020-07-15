@@ -82,7 +82,7 @@ def metric_battery(original, method, csv=False, plot=False, **kwargs):
         print('  SSIM:       %.5f'%ssim_or)
 
     if plot:
-        import matplotlib.pylab as plt
+        import matplotlib.pylab as plt # pylint: disable=import-error
         plt.gray()
         __plot(0, original)
         __plot(1, enhanced)
@@ -91,7 +91,7 @@ def metric_battery(original, method, csv=False, plot=False, **kwargs):
 
 def __plot(idx, im):
     """Show an image and its histogram"""
-    import matplotlib.pylab as plt
+    import matplotlib.pylab as plt # pylint: disable=import-error
     plt.subplot(3, 2, 2*idx+1)
     plt.imshow(im)
     plt.subplot(3, 2, 2*idx+2)
