@@ -4,7 +4,7 @@ Implements variation approach strict ordering for use with exact histogram equal
 
 from numpy import asarray, empty, sqrt, subtract, nonzero
 
-from ..util import ci_artificial_gpu_support, lru_cache_array
+from ..util import HAS_CUPY, get_array_module, is_on_gpu, lru_cache_array
 
 SQRT2I = 1/sqrt(2)
 SQRT3I = 1/sqrt(3)
@@ -45,7 +45,6 @@ del SQRT2I, SQRT3I
 
 # pylint: disable=invalid-name
 
-@ci_artificial_gpu_support
 def calc_info(im, niters=5, beta=None, alpha=None, gamma=None):
     """
     Assign strict ordering to image pixels. The returned value is the same shape as the image but
@@ -89,8 +88,7 @@ def calc_info(im, niters=5, beta=None, alpha=None, gamma=None):
      3. Nikolova M and Steidl G, 2014, "Fast Ordering Algorithm for Exact Histogram Specification"
         IEEE Trans. on Image Processing, 23(12):5274-5283
     """
-    from numpy import abs, divide #pylint: disable=redefined-builtin
-    # this does not use pixels outside of the image at all
+    # this does not use pixels outside of the image at all (it behaves as though it was constant-0)
 
     # NOTE: This does not use the *_theta_* functions but instead has it solved out. If those
     # functions are changed this function will also need to be updated.
@@ -98,9 +96,20 @@ def calc_info(im, niters=5, beta=None, alpha=None, gamma=None):
     gamma, _, beta, alpha_1, alpha_2 = __check_args(gamma, beta, alpha, im.ndim)
     if niters <= 0: raise ValueError('niters') # niters is R in [3]
 
+    u = im.astype(float) # no copy=False since we modify in-place
+    gamma = get_array_module(u).asarray(gamma)
+
+    if is_on_gpu(u):
+        constants = cupy.array((beta, alpha_1, alpha_2), dtype=float)
+        return __get_cupy_kernel(im.ndim, niters)(u, gamma, constants, u)
+    return __calc_info_cpu(im, u, niters, beta, alpha_1, alpha_2, gamma)
+
+def __calc_info_cpu(im, u, niters, beta, alpha_1, alpha_2, gamma): # pylint: disable=too-many-arguments
+    """Implementation of the VA algorithm for CPU using Scipy."""
+    from numpy import abs, divide #pylint: disable=redefined-builtin
+
     # Allocate temporaries
-    u, t = im.astype(float), empty(im.shape)
-    d_phi, denom = empty(im.shape), empty(im.shape)
+    t, d_phi, denom = empty(u.shape), empty(u.shape), empty(u.shape)
 
     # Slices to use for each difference in the gradient matrix G
     G_info = __get_g_info(gamma)
@@ -169,8 +178,81 @@ def __calculate_d_Phi(u, t, G_info, alpha_2, d_phi, denom): # pylint: disable=to
         t[slc_pos] += d_phi_x
         t[slc_neg] -= d_phi_x
 
+if HAS_CUPY:
+    import cupy # pylint: disable=import-error
+    @cupy.util.memoize(for_each_device=True)
+    def __get_cupy_kernel(ndim, niters=5):
+        """
+        Create the cupy ElementwiseKernel for the VA algorithm with the given number of dimensions
+        and iterations. The kernel requires passing the image, the gamma values (with 3**ndim
+        values), and the beta, alpha_1, and alpha_2 constants as a float array. Additionally, the
+        image must be passed again as the output array.
+
+        This could easily remove the niters parameter and only be dependent on the number of
+        dimensions. However, that value won't likely change too much.
+        """
+
+        # This creates C code similar to the purpose of the Python __get_g_info() function. The
+        # generated C code is a series of ndim nested loops and fills in the variables gamma,
+        # neighbors, and n_neighbors.
+        g_info = []
+        for j in range(ndim):
+            g_info.append('''for (int dim_{j} = 0; dim_{j} < 3; dim_{j}++) {{
+        ni[{j}] = _ind.get()[{j}] + dim_{j} - 1;
+        bool skip_{j} = ni[{j}] < 0 || ni[{j}] >= x.shape()[{j}];'''.format(j=j))
+        g_info = '''int neighbor_full_ind = 0, ni[{ndim}];
+        {loops}
+            // inner-most loop
+            if (gamma_[neighbor_full_ind] && !({skip})) {{
+                gamma[n_neighbors] = gamma_[neighbor_full_ind];
+                neighbors[n_neighbors++] = &x[ni];
+            }}
+            neighbor_full_ind++;
+        {end_loops}'''.format(
+            ndim=ndim,
+            loops='\n'.join(g_info),
+            skip='||'.join('skip_{}'.format(j) for j in range(ndim)),
+            end_loops='}'*ndim)
+
+        return cupy.ElementwiseKernel(
+            'raw float64 x, raw float64 gamma_, raw float64 constants', 'float64 out',
+            """
+            // The gamma_ array is condensed to gamma, removing all 0s and out-of-bounds elements
+            // The neighbors array is pointers to the data for neighbors, parallel to gamma
+            int n_neighbors = 0; // actual number of neighbors being considered, <={max_neighbors}
+            double gamma[{max_neighbors}];
+            const double* neighbors[{max_neighbors}];
+            {g_info}
+
+            // Save constants to variables
+            const double beta = constants[0];
+            const double alpha_1 = constants[1];
+            const double alpha_2 = constants[2];
+            const double orig = x[i];
+
+            // The actual algorithm is from this point forward
+            for (int k = 0; k < {niters}; k++) {{
+                double t = 0, value = out;
+                for (int j = 0; j < n_neighbors; j++) {{
+                    double a = gamma[j] * (value - *neighbors[j]);
+                    t += a / (fabs(a) + alpha_2);
+                }}
+                t *= beta;
+                double u = alpha_1 * t / (fabs(t) - 1);
+                u += orig;
+
+                __syncthreads();
+                out = u;
+                __syncthreads();
+                // Maybe faster than just doing more iterations? (on GPU)
+                // Should be only done once (not on all threads, actually should re-dispatch)
+                // if (k >= 1 && is_unique(x)) {{ break; }}
+            }}""".format(niters=niters, max_neighbors=3**ndim, g_info=g_info),
+            'va_calc_info_{}_{}'.format(ndim, niters), reduce_dims=False)
+
+
 # @lru_cache_array # gamma is unhashable...
-def __check_gamma(gamma):
+def __check_gamma(gamma, ndim=None):
     """
     Checks the gamma matrix to make sure that it is a 3x3 or 3x3x3 matrix with a 0 in the middle,
     no negative values, and symmetrical in all directions. Returns gamma, converted to an array if
@@ -183,8 +265,10 @@ def __check_gamma(gamma):
         using a variational approach", J of Mathematical Imaging and Vision, 46(3):309-325
     """
     gamma = asarray(gamma)
-    # Check that all dimension lengths are 3, there are no negative values, and the middle is 0
+    if ndim is not None and gamma.ndim != ndim:
+        raise ValueError('gamma and im must have the same dimension')
     ndim = gamma.ndim
+    # Check that all dimension lengths are 3, there are no negative values, and the middle is 0
     if any(x != 3 for x in gamma.shape) or (gamma < 0).any() or gamma[(1,)*ndim] != 0:
         raise ValueError('gamma')
     # Check for symmetry along each axis
@@ -200,8 +284,9 @@ def __check_gamma(gamma):
 # @lru_cache_array # gamma is unhashable...
 def __get_gamma(gamma, ndim):
     """
-    Gets and checks the value for gamma (either the one given or a default one of the given
-    dimension if None). Also ensures that gamma has the same dimension as ndim.
+    Gets and checks the value for gamma (either the one given, a default one of the given
+    dimension if None, a min, full, or distance one based on the given dimension if one of the
+    strings 'min', 'full', or 'dist'). Also checks the gamma value is provided.
     """
     if gamma is None: return __create_gamma_min(ndim)
     if isinstance(gamma, str):
@@ -209,7 +294,6 @@ def __get_gamma(gamma, ndim):
         if gamma == 'full': return __create_gamma_full(ndim)
         if gamma == 'dist': return __create_gamma_dist(ndim)
         raise ValueError('gamma')
-    if gamma.ndim != ndim: raise ValueError('gamma and im must have the same dimension')
     return __check_gamma(gamma)
 
 @lru_cache_array
@@ -409,8 +493,7 @@ def compute_c(im, beta=None, alpha=None, gamma=None):
         z = v(im, gamma) - 2*b(beta*eta, alpha_1) > 0
         v(im, gamma) is the largest minimal neighbor differences in the image    [1 eq 14]
         eta = sum(gamma)   [1 eq 10]
-        gamma is the neighbor weights, (i.e. a CONNECTIVITY constant), default is CONNECTIVITY_N4
-            for 2D images and CONNECTIVITY3_N6 for 3D images
+        gamma is the neighbor weights, (i.e. a CONNECTIVITY constant), default is 'min'
         b(y) is the inverse of theta'(t)    [2 eq 12]
             In [1] b(y) = (theta')^(-1)(y*eta)    [1 eq 12]
         alpha_2 equals alpha_1 if one alpha provided, provide a sequence to have different values
@@ -453,7 +536,7 @@ def compute_optimal_alpha_1(beta=None, gamma=CONNECTIVITY_N4, delta=0.5):
     if delta <= 0: raise ValueError('delta')
     return delta * (1 / (beta*eta) - 1)
 
-def check_convergence(beta=None, alpha=None, gamma=CONNECTIVITY_N4, return_value=False):
+def check_convergence(beta=None, alpha=None, gamma=None, return_value=False):
     """
     Check convergence of the fixed point algorithm, the following condition must be true:
         2*eta2*beta*xi'(beta*eta, alpha_1)*theta''(0, alpha_2) < 1    [3 eq 10]
@@ -463,8 +546,7 @@ def check_convergence(beta=None, alpha=None, gamma=CONNECTIVITY_N4, return_value
         gamma is the neighbor weights, (i.e. a CONNECTIVITY constant)
         alpha_2 equals alpha_1 if one alpha provided, provide a sequence to have different values
 
-    The default beta is 0.4/eta. The deafult alphas are 0.1/eta. The default gamma is
-    CONNECTIVITY_N4 which is only appropriate for 2D images.
+    The default beta is 0.4/eta. The deafult alphas are 0.1/eta. The default gamma is 'min'.
 
     If return_value is given as True, the value that is computed which must be < 1 for convergence
     is returned instead of a True or False value.
@@ -491,7 +573,7 @@ def compute_upper_beta(gamma=CONNECTIVITY_N4, alpha_1_2_ratio=1):
         eta = sum(gamma)   [1 eq 10]
         eta2 = sum(gamma^2)
         gamma is the neighbor weights, (i.e. a CONNECTIVITY constant), default is CONNECTIVITY_N4
-          which is only appropriate for 2D images
+            which is only appropriate for 2D images.
 
     The default assumes alpha_1 == alpha_2. If not, specify alpha_1/alpha_2 as alpha_1_2_ratio.
 
@@ -505,7 +587,7 @@ def compute_upper_beta(gamma=CONNECTIVITY_N4, alpha_1_2_ratio=1):
     """
     # NOTE: This does not use the theta functions but instead has it solved out. If those functions
     # are changed this function will also need to be updated. See [3 table after eq 10] but need to
-    # change the 8 to 2*eta2 and the 4 to eta set < 1 and then solve to beta.
+    # change the 8 to 2*eta2 and the 4 to eta, set < 1, then solve for beta.
     gamma = __check_gamma(gamma)
     if alpha_1_2_ratio <= 0: raise ValueError('alpha_1_2_ratio')
     eta, eta2 = gamma.sum(), (gamma*gamma).sum()
