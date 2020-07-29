@@ -278,11 +278,10 @@ def trim_zeros(arr):
     Trims rows/columns/planes of all zeros from an array. It is assumed that the array is
     symmetrical in all directions.
     """
-    n = (len(arr) + 1) // 2
-    line = arr[(n,)*(arr.ndim-1)] != 0
-    for i in range(n):
-        if line[i]: return arr[(slice(i, -i),)*arr.ndim]
-    return arr[(slice(0, 0),)*arr.ndim]
+    slices = (slice(1, -1),)*arr.ndim
+    while arr.size and (arr[0] == 0).all():
+        arr = arr[slices]
+    return arr
 
 
 ##### Image as blocks #####
