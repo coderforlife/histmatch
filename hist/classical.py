@@ -105,7 +105,7 @@ def histeq_apply(im, transform, mask=None):
 
     Supports GPU array images (as cupy arrays) for a considerable speedup.
     """
-    im = check_image_mask_single_channel(im, mask)
+    im, mask = check_image_mask_single_channel(im, mask)
     if mask is None:
         im = __histeq_apply(im, transform)
     else:
