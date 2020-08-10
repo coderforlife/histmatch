@@ -117,7 +117,8 @@ def main():
     im = cui.open_input_image(args)
 
     # Run
-    print(args.input, end=',' if args.csv else '\n')
+    sep_end = ',' if args.csv else '\n'
+    print(args.input, args.method, sep=sep_end, end=sep_end)
     metric_battery(im, args.method, csv=args.csv, plot=args.plot, **dict(args.kwargs))
 
 if __name__ == "__main__":
