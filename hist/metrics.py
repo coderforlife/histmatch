@@ -120,8 +120,7 @@ def psnr(im1, im2, mask=None):
     """
     Calculates the peak signal-to-noise ratio between two images. The returned value is in dB.
 
-    Higher indicates a stronger signal and thus is better (in fact a perfect match will result in
-    infinity).
+    Higher indicates a stronger signal and thus is better (perfect matches return infinity).
 
     Computed as:
         PSNR = 10*log10((MAX-MIN)^2/MSE)
@@ -148,6 +147,9 @@ def psnr(im1, im2, mask=None):
     diff = im1.astype(float, copy=False) - im2
     diff *= diff
     mse = diff.sum()/im1.size
+    if mse == 0:
+        from numpy import inf
+        return inf
     scale = mx - mn
     return 10 * log10(scale*scale/mse)
 
@@ -156,11 +158,11 @@ def enhancement_measurement(im, block_size=3, metric='sdme', alpha=0.75):
     Compute a Measure of Enhancement by Panetta et al [4]. There are several related measures that
     all take the following form:
 
-        1/n * sum(20 * ln(metric))
+        1/n * sum(20 * log_10(metric))
 
     for standard measures and the following for entropic measures:
 
-        1/n * sum(alpha*metric^alpha * ln(alpha*metric^alpha))    ?
+        1/n * sum(alpha*metric^alpha * log_10(alpha*metric^alpha))    ?
 
     where the metric is computed over n non-overlapping blocks in the image. The sum operates over
     all blocks. The metrics are defined in terms of the maximum and minimum values in the blocks:
@@ -185,7 +187,7 @@ def enhancement_measurement(im, block_size=3, metric='sdme', alpha=0.75):
     value of alpha can also be a sequence in which case a sequence of values is returned for the
     alphas. This is significantly faster than calling this function with separate values of alpha.
 
-    All of these have higher values to indicate "enhancement" and this higher is better.
+    All of these have higher values to indicate "enhancement" and higher is better.
 
     Currently the logAME/logAMEE (Logarithmic AME / Integrated PLIP operators from [3]) are not
     included.
@@ -204,6 +206,7 @@ def enhancement_measurement(im, block_size=3, metric='sdme', alpha=0.75):
     """
     # TODO: test, get response, and also just implement using convolutions like in measures.m?
     # Also, EME has a divide-by-0 issue? their code picks the second-minimum
+    # TODO: support masks
     from numpy import abs, isfinite # pylint: disable=redefined-builtin
     im = check_image_single_channel(im)
     metric = metric.lower()
@@ -265,7 +268,6 @@ def __calc_block_min_max(im, block_size, compute_centers=False): # pylint: disab
     # Shape of the data after the blocking
     # up means round up, down means round down
     shape_up = tuple((x+sz-1)//sz for x, sz in zip(im.shape, block_size))
-    #shape_down = tuple(x//sz for x, sz in zip(im.shape, block_size))
     slice_down = tuple(slice(x//sz) for x, sz in zip(im.shape, block_size))
     slice_all = (slice(None),)*im.ndim
 
@@ -303,7 +305,7 @@ def __calc_block_min_max(im, block_size, compute_centers=False): # pylint: disab
     # Done
     return (maxes, mins, centers) if compute_centers else (maxes, mins)
 
-def ssim(im1, im2, block_size=None, sigma=1.5, k1=0.01, k2=0.03, remove_edges=False, mask=None): # pylint: disable=too-many-arguments, invalid-name
+def ssim(im1, im2, mask=None, block_size=None, sigma=1.5, k1=0.01, k2=0.03, remove_edges=False): # pylint: disable=too-many-arguments, invalid-name
     """
     Calculates the mean SSIM image as the average of all:
         SSIM(x,y) = (2*mu_x*mu_y+C1)*(2*sig_xy+C2)/((mu_x^2+mu_y^2+C1)*(sig_x^2+sig_y^2+C2))
@@ -556,6 +558,7 @@ def __compute_contrasts(im, sigma_g1s, sigma_g2s):
         Enhancement and Visual System Based Quantitative Evaluation", IEEE Transactions on Image
         Processing, 20(5):1211-1220.
     """
+    from .util import EPS
     from scipy.ndimage import fourier_gaussian
 
     contrasts = empty(im.shape + (len(sigma_g1s),))
@@ -567,16 +570,16 @@ def __compute_contrasts(im, sigma_g1s, sigma_g2s):
     for i, (sigma_g1, sigma_g2) in enumerate(zip(sigma_g1s, sigma_g2s)):
         # Using real-space correlations  (also need to remove rfftn() above but keep the astype)
         # The real-space correlations produce lower values
-        #from .util import EPS
         #center = im if g_1.size == 1 else ndi.gaussian_filter(im, sigma_g1, truncate=3)
         #surround = ndi.gaussian_filter(im, sigma_g2, output=temp, truncate=3)
-        #surround[surround == 0] = EPS
 
         center = irfftn(fourier_gaussian(im, sigma_g1, im.shape[-1], output=temp))
         surround = irfftn(fourier_gaussian(im, sigma_g2, im.shape[-1], output=temp))
+        surround[surround == 0] = EPS
 
         contrast = contrasts[..., i]
         subtract(center, surround, contrast)
+
         contrast /= surround
         #abs(contrast, contrast) # norm will automatically take the absolute value for us
     return contrasts
