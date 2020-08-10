@@ -106,7 +106,7 @@ def __generate_swts(im, filter_bank, nlevels=2, detail_magnitude=False):
     from scipy.ndimage import correlate1d
 
     temps = [im] + \
-            [empty(im.shape, float if im.dtype.kind == 'f' else int64) for _ in range(nlevels)]
+            [empty(im.shape, float if im.dtype.kind == 'f' else int64) for _ in range(im.ndim)]
     filter_bank = tuple(asarray(f, float) for f in filter_bank)
 
     for level in range(nlevels):
