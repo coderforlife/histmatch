@@ -26,7 +26,7 @@ def calc_info(im, h_dst, reconstruction=False, return_fails=False):
 
     # Find closest equalization using minimum distance decoder
     im = im.ravel()
-    index_z = im.argsort() if on_gpu else im.argsort(kind='stable') # cupy is always stable
+    index_z = im.argsort() if on_gpu else im.argsort(kind='stable')  # cupy is always stable
 
     # When reconstructing we need to reverse various indices so that it goes optimally
     if reconstruction:
@@ -53,7 +53,7 @@ def __reconstruction(im, h_dst, index_z):
     # Fix ties of z, formally the way to recover stable sorting
     for i, j in __bracket_iter(h_dst):
         if i+1 < j:
-            index_z[i:j].sort()
+            index_z[i:j].sort(kind='stable')  # use radix sort
 
 def __reconstruction_on_gpu(im, h_dst, index_z):
     # pylint: disable=import-error
