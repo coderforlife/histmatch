@@ -26,7 +26,7 @@ def calc_info(im, h_dst, reconstruction=False, return_fails=False):
 
     # Find closest equalization using minimum distance decoder
     im = im.ravel()
-    index_z = im.argsort() if on_gpu else im.argsort(kind='stable')
+    index_z = im.argsort() if on_gpu else im.argsort(kind='stable') # cupy is always stable
 
     # When reconstructing we need to reverse various indices so that it goes optimally
     if reconstruction:

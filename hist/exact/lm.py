@@ -4,7 +4,7 @@ Implements local means strict ordering for use with exact histogram equalization
 
 from ..util import get_array_module, get_ndimage_module, lru_cache_array, FLOAT64_NMANT
 
-def calc_info(im, order=6):
+def calc_info(im, order=6, allow_compaction=True):
     """
     Assign strict ordering to image pixels. The returned value is the same shape as the image but
     with values for each pixel that can be used for strict ordering. For some types of images or
@@ -42,7 +42,7 @@ def calc_info(im, order=6):
     dt = im.dtype
 
     # Get the filters for this setup
-    filters, includes_order_one = __get_filters(dt, order, im.ndim)
+    filters, includes_order_one = __get_filters(dt, order, im.ndim, allow_compaction)
 
     if len(filters) == 1 and (includes_order_one or FLOAT64_NMANT + dt.itemsize*8 <= 64):
         # Single convolution
@@ -61,7 +61,7 @@ def calc_info(im, order=6):
     return out
 
 @lru_cache_array
-def __get_filters(dt, order, ndim):
+def __get_filters(dt, order, ndim, allow_compaction=True):
     """
     Get the local-means filters for an image data type and order. The returned sequence is has the
     lowest orders (most important) last for proper lexsorting. If and only if the second return
@@ -80,7 +80,7 @@ def __get_filters(dt, order, ndim):
     raw = dist2_matrix(order, ndim)
 
     # Cannot compact these types, just return a series of standard filters
-    if dt.kind == 'f' or dt.itemsize > 2:
+    if not allow_compaction or dt.kind == 'f' or dt.itemsize > 2:
         return tuple(trim_zeros(raw == i) for i in numpy.unique(raw)[1:order][::-1]), False
 
     # if dt.kind == 'u' and dt.itemsize <= 2 - compact filters

@@ -27,7 +27,7 @@ def calc_info_rand(im):
     return im
 
 
-def calc_info_gaussian_laplacian(im, sigmas=(0.5, 1.0), laplacian_mag=True):
+def calc_info_gaussian_laplacian(im, sigmas=(0.5, 1.0), laplacian_mag=True, allow_compaction=True):
     """
     Assign strict ordering to image pixels. The returned value is the same shape but with an extra
     dimension for the results of the additional filters. This stack needs to be lex-sorted.
@@ -50,7 +50,7 @@ def calc_info_gaussian_laplacian(im, sigmas=(0.5, 1.0), laplacian_mag=True):
 
     # Compaction only works for 8-bit integers
     # On the CPU compaction is a bit slower but will sort faster later
-    if im.dtype.kind in 'iub' and im.dtype.itemsize == 1:
+    if allow_compaction and im.dtype.kind in 'iub' and im.dtype.itemsize == 1:
         im = as_unsigned(im)
         out = xp.zeros((len(sigmas),) + im.shape, uint64)
         out[-1, ...] = im
@@ -84,7 +84,7 @@ def calc_info_gaussian_laplacian(im, sigmas=(0.5, 1.0), laplacian_mag=True):
     return out
 
 
-def calc_info_mean_laplacian(im, order=3, laplacian_mag=True):
+def calc_info_mean_laplacian(im, order=3, laplacian_mag=True, allow_compaction=True):
     """
     Assign strict ordering to image pixels. The returned value is the same shape as the image but
     with values for each pixel that can be used for strict ordering. For some types of images or
@@ -116,7 +116,7 @@ def calc_info_mean_laplacian(im, order=3, laplacian_mag=True):
     filters = filters[::-1] # compact goes from most-to-least important
 
     # Filter the image
-    if im.dtype.kind == 'f' or im.dtype.itemsize > 2:
+    if not allow_compaction or im.dtype.kind == 'f' or im.dtype.itemsize > 2:
         return non_compact(im, 2*order-2, __gen_mean_laplacian_filtered, (filters, laplacian_mag))
     scales = [scale_from_filter(fltr) for fltr in filters] if not laplacian_mag else \
         [(0, int(fltr.max() if i%2 == 1 else fltr.sum())) for i, fltr in enumerate(filters)]
@@ -147,7 +147,7 @@ def __make_laplacian(fltr):
     return fltr
 
 
-def calc_info_local_contrast(im, order=6):
+def calc_info_local_contrast(im, order=6, allow_compaction=True):
     """
     Assign strict ordering to image pixels. The returned value is the same shape as the image but
     with values for each pixel that can be used for strict ordering. For some types of images or
@@ -169,7 +169,7 @@ def calc_info_local_contrast(im, order=6):
     disks = generate_disks(order, im.ndim)
 
     # Floating-point images cannot be compacted
-    if im.dtype.type == 'f':
+    if not allow_compaction or im.dtype.type == 'f':
         out = xp.empty((order,) + im.shape)
         min_tmp = out[-1, ...]
         for i, disk in enumerate(disks):
@@ -205,7 +205,7 @@ def calc_info_local_contrast(im, order=6):
     return out[0, ...] if layer == 0 else out
 
 
-def calc_info_neighborhood_avg(im, size=3, invert=False):
+def calc_info_neighborhood_avg(im, size=3, invert=False, allow_compaction=True):
     """
     Assign strict ordering to image pixels. The returned value is the same shape as the image but
     with values for each pixel that can be used for strict ordering. For some types of images or
@@ -242,7 +242,7 @@ def calc_info_neighborhood_avg(im, size=3, invert=False):
     shift = dt.itemsize*8 + log2i(n_neighbors)
     nbits = shift + dt.itemsize*8
 
-    if dt.kind == 'f' or nbits > FLOAT64_NMANT:
+    if not allow_compaction or dt.kind == 'f' or nbits > FLOAT64_NMANT:
         # No compaction possible
         out = xp.empty((2,) + im.shape)
         avg = __correlate_uniform(im, size, out[0, ...])
@@ -274,7 +274,7 @@ def __correlate_uniform(im, size, output):
     return output
 
 
-def calc_info_neighborhood_voting(im, size=3, invert=False):
+def calc_info_neighborhood_voting(im, size=3, invert=False, allow_compaction=True):
     """
     Assign strict ordering to image pixels. The returned value is the same shape as the image but
     with values for each pixel that can be used for strict ordering. For some types of images or
@@ -302,7 +302,7 @@ def calc_info_neighborhood_voting(im, size=3, invert=False):
     shift = log2i(n_neighbors)
     nbits = shift + dt.itemsize*8
 
-    if dt.kind == 'f' or nbits > 63:
+    if not allow_compaction or dt.kind == 'f' or nbits > 63:
         # No compaction possible
         out = xp.zeros((2,) + im.shape, float if dt.kind == 'f' else uint64)
         __count_votes(im, out[0, ...], size, invert)

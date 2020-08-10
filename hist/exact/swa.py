@@ -12,7 +12,7 @@ from numpy import asarray, empty
 from ..util import ci_artificial_gpu_support
 
 @ci_artificial_gpu_support
-def calc_info(im, detail_magnitude=True, nlevels=2, kernel='haar'):
+def calc_info(im, detail_magnitude=True, nlevels=2, kernel='haar', allow_compaction=True):
     """
     Assign strict ordering to image pixels. The returned value is the same shape but with an extra
     dimension for the results of the additional filters. This stack needs to be lex-sorted. The
@@ -73,7 +73,7 @@ def calc_info(im, detail_magnitude=True, nlevels=2, kernel='haar'):
         kernel = kernel.lower()
         filter_bank = __FILTER_BANKS.get(kernel, None)
 
-    if im.dtype.kind == 'f' or im.dtype.itemsize > 2 or filter_bank is None:
+    if not allow_compaction or im.dtype.kind == 'f' or im.dtype.itemsize > 2 or filter_bank is None:
         # Get any filter
         if filter_bank is None:
             from pywt import Wavelet
