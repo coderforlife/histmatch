@@ -41,7 +41,7 @@ def __save(args, out):
         out = out.get()
     if args.output.endswith('.npy'):
         numpy.save(args.output, out)
-    if args.output.endswith('.npy.gz'):
+    elif args.output.endswith('.npy.gz'):
         with gzip.GzipFile(args.output, 'wb') as file:
             numpy.save(args.output, file)
     elif out.ndim == 3 and '#' in args.output:
