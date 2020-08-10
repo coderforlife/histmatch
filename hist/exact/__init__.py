@@ -285,8 +285,9 @@ def __sort_pixels(values, shape, mask=None, return_fails=False, stable=False):
     elif values.shape == shape:
         # Single value per pixel
         values = values.ravel() if mask is None else values[mask]
-        idx = values.argsort() if is_on_gpu(values) else \
-            values.argsort(kind='stable' if stable else 'quicksort')
+        # Numpy now uses radix sort for integers which is much faster than quicksort
+        kind = 'stable' if stable or values.dtype.kind not in 'fc' else 'quicksort'
+        idx = values.argsort() if is_on_gpu(values) else values.argsort(kind=kind)
     else:
         # Tuple of values per pixel - need lexsort
         assert values.shape[1:] == shape
