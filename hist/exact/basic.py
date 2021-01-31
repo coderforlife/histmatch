@@ -349,7 +349,7 @@ def __count_votes(im, out, size, invert):
 
 if HAS_CUPY:
     import cupy # pylint: disable=import-error
-    @cupy.util.memoize(for_each_device=True)
+    @cupy.memoize(for_each_device=True)
     def __get_count_votes_cupy_kernel(invert):
         sign = '>' if invert else '<'
         return cupy.ReductionKernel('X x', 'Y y',

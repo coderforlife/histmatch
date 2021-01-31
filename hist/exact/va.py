@@ -180,7 +180,7 @@ def __calculate_d_Phi(u, t, G_info, alpha_2, d_phi, denom): # pylint: disable=to
 
 if HAS_CUPY:
     import cupy # pylint: disable=import-error
-    @cupy.util.memoize(for_each_device=True)
+    @cupy.memoize(for_each_device=True)
     def __get_cupy_kernel(ndim, niters=5):
         """
         Create the cupy ElementwiseKernel for the VA algorithm with the given number of dimensions
