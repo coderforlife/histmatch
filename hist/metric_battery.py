@@ -6,7 +6,7 @@ from . import imhist, histeq, histeq_exact
 from .metrics import (contrast_per_pixel, enhancement_measurement, distortion,
                       contrast_enhancement, count_differences, psnr, ssim)
 
-def metric_battery(original, method, csv=False, plot=False, **kwargs):
+def metric_battery(original, method, nbins=256, csv=False, plot=False, **kwargs):
     """
     Runs a battery of metrics while historgram equalizing the original image and then attempting to
     reconstruct the original image using the given method (either 'classic' or one of the methods
@@ -20,14 +20,14 @@ def metric_battery(original, method, csv=False, plot=False, **kwargs):
     # pylint: disable=too-many-locals, too-many-statements
     hist_orig = imhist(original)
     if method == 'classic':
-        enhanced = histeq(original, 256, **kwargs)
+        enhanced = histeq(original, nbins, **kwargs)
         recon = histeq(enhanced, hist_orig, **kwargs)
         fails_forward = fails_reverse = -1
     else:
         kwargs['method'] = method
         kwargs['return_fails'] = True
         if 'reconstruction' in kwargs: kwargs['reconstruction'] = False
-        enhanced, fails_forward = histeq_exact(original, 256, **kwargs)
+        enhanced, fails_forward = histeq_exact(original, nbins, **kwargs)
         if 'reconstruction' in kwargs: kwargs['reconstruction'] = True
         recon, fails_reverse = histeq_exact(enhanced, hist_orig, **kwargs)
 
@@ -110,6 +110,9 @@ def main():
     parser.add_argument('--csv', action='store_true', help='output data as CSV with no header')
     parser.add_argument('--plot', action='store_true',
                         help='plot original, enhanced, and reconstructed images with histograms')
+    parser.add_argument('--nbins', '-n', type=int, default=256, metavar='N',
+                        help='number of bins in the intermediate histogram, default is 256 '
+                        '(reverse direction always uses a full histogram)')
     cui.add_kwargs_arg(parser)
     args = parser.parse_args()
 

@@ -8,25 +8,27 @@ METHODS = ('classic', 'arbitrary', 'rand', 'na', 'nv', 'gl', 'ml', 'lc', 'lm', '
 
 def add_method_arg(parser):
     """Add the method argument to an argument parser object."""
-    parser.add_argument('method', choices=METHODS, help='method of histogram equalization')
+    parser.add_argument('--method', '-m', choices=METHODS, default='va',
+                        help='method of histogram equalization, default is "va"')
 
 def add_kwargs_arg(parser):
-    """Add the kwargs arg to an argument parser object which accepts a series of k=v arguments."""
-    parser.add_argument('kwargs', type=__kwargs_arg, nargs='*', help='any special keyword '+
-                        'arguments to pass to the method, formated as key=value with value being '+
-                        'a valid Python literal or one of the special values nan, inf, -inf, N4, '+
-                        'N8, N8_DIST, N6, N18, N18_DIST, N26, N26_DIST')
+    """Add the kwargs arg to an argument parser object which accepts many k=v arguments."""
+    parser.add_argument('--arg', '-a', type=__kwargs_arg, metavar='K=V', action='append',
+                        dest='kwargs', default=[],
+                        help='any special keyword arguments to pass to the method, formated as '
+                        'key=value with value being a valid Python literal or one of the special '
+                        'values nan, inf, -inf, N4, N8, N8_DIST, N6, N18, N18_DIST, N26, N26_DIST')
 
-def add_input_image(parser):
+def add_input_image(parser, output=False):
     """
     Add a required input argument and an optional --float argument. Use the open_input_image
-    function to read the image. This supports filenames with glob wildcards or directories to read a
-    series of images in as a 3D image.
+    function to read the image. This supports filenames with glob wildcards or directories to read
+    a series of images in as a 3D image.
     """
     parser.add_argument('input', help='input image file (including .npy, .npy.gz, and '
                         'directories/wildcard names for 3D images)')
-    parser.add_argument('--float', action='store_true', help='convert image to float')
-    parser.add_argument('--gpu', action='store_true', help='utilize the GPU when able')
+    parser.add_argument('--float', '-f', action='store_true', help='convert image to float')
+    parser.add_argument('--gpu', '-g', action='store_true', help='utilize the GPU when able')
 
 def open_input_image(args_or_filename, conv_to_float=False, use_gpu=False):
     """
@@ -39,6 +41,7 @@ def open_input_image(args_or_filename, conv_to_float=False, use_gpu=False):
     import os
     from glob import glob
     from numpy import stack
+
     if isinstance(args_or_filename, str):
         filename = args_or_filename
     else:
@@ -66,10 +69,10 @@ def __load_image(filename, conv_to_float=False, use_gpu=False):
     import imageio
     from numpy import load
     from hist.util import as_float
-    if filename.endswith('.npy.gz'):
+    if filename.lower().endswith('.npy.gz'):
         with gzip.GzipFile(filename, 'rb') as file:
             im = load(file)
-    elif filename.endswith('.npy'):
+    elif filename.lower().endswith('.npy'):
         im = load(filename)
     else:
         im = imageio.imread(filename)

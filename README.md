@@ -30,10 +30,10 @@ out_gpu = hist.histeq_exact(im_gpu)
 
 The code can be run as a standalone program:
 ```sh
-python3 -m hist.main input.png output.png
-python3 -m hist.main input output # converts a 3d image stored in a folder
+python3 -m hist input.png output.png
+python3 -m hist input # converts a 3d image stored in a folder
 ```
-See `python3 -m hist.main --help` for more information.
+See `python3 -m hist --help` for more information.
 
 References
 ----------
